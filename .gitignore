@@ -1,0 +1,57 @@
+# Compiled binaries
+build/
+bin/
+dist/
+*.exe
+*.obj
+*.o
+*.d
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.a
+*.so
+*.dylib
+
+# LLVM output
+*.ll
+*.bc
+*.s
+.o.ll
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Package manager
+engc.lock
+engc-cache/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# EngineSoft symlink/binary
+engc
+main
+test_etc_ast
+test_etc_ast.cpp
+test_etc_standalone
+
+# Build cache
+.build/
+
+# Submodules with nested repos
+add/

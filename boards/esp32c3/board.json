@@ -1,0 +1,34 @@
+{
+    "name": "ESP32-C3",
+    "architecture": "riscv",
+    "cpu": "ESP32-C3-FR-1",
+    "clock_hz": 160000000,
+    "flash_bytes": 2097152,
+    "ram_bytes": 40960,
+    "psram_bytes": 0,
+    "builtin_led_pin": 8,
+    "has_uart": true,
+    "has_spi": true,
+    "has_i2c": true,
+    "has_wifi": true,
+    "has_ble": true,
+    "upload_tool": "esptool",
+    "upload_baud": "115200",
+    "compiler_path": "xtensa-esp32c3-elf-gcc",
+    "linker_script": "esp32c3.common.ld",
+    "pins": {
+        "digital": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+        "analog": [0, 1, 2, 3, 4],
+        "pwm": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+    },
+    "uart": {
+        "port0": { "tx": 21, "rx": 20 }
+    },
+    "spi": { "mosi": 11, "miso": 12, "sck": 13, "ss": 10 },
+    "i2c": { "sda": 6, "scl": 7 },
+    "adc": {
+        "resolution_bits": 12,
+        "channels": 5,
+        "vref_mv": 3300
+    }
+}

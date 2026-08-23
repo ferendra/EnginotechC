@@ -1,0 +1,15 @@
+// ETC Script Demo
+// Demonstrates the .etc file parser with print statements
+
+print("Hello from ETC!")
+print("This is a simple script")
+output "Testing output command"
+say "Greeting from say command"
+
+// Multiple lines
+print("Line 1")
+print("Line 2")
+print("Line 3")
+
+// Numbers (as string literals)
+print("The answer is: 42")

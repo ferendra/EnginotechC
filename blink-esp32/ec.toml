@@ -1,0 +1,17 @@
+[project]
+name = "blink-esp32"
+version = "0.1.0"
+
+[target]
+target = "esp32"
+board = "esp32-devkit"
+
+[build]
+optimization = "O2"
+debug = false
+
+[embedded]
+runtime = "embedded-min"
+
+[serial]
+baud = 115200

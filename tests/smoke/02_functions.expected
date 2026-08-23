@@ -1,0 +1,3 @@
+add = 15
+div = 2
+Error: Division by zero!

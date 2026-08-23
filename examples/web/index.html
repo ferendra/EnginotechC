@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EnginotechC++ Web Demo</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #eee;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            background: linear-gradient(90deg, #00d9ff, #00ff88);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .subtitle {
+            color: #888;
+            margin-bottom: 30px;
+            font-size: 1.1em;
+        }
+        .output {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 12px;
+            padding: 25px;
+            max-width: 500px;
+            width: 100%;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 1.1em;
+            line-height: 1.8;
+        }
+        .output pre {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .info {
+            margin-top: 20px;
+            padding: 15px;
+            background: rgba(0,217,255,0.1);
+            border-left: 3px solid #00d9ff;
+            border-radius: 4px;
+            font-size: 0.9em;
+            color: #aaa;
+        }
+    </style>
+</head>
+<body>
+    <h1>🚀 EnginotechC++ Web</h1>
+    <p class="subtitle">Compiled from .ec to JavaScript</p>
+    
+    <div class="output">
+        <pre id="output">Loading...</pre>
+    </div>
+    
+    <div class="info">
+        Build with: <code>engc build --target web hello.ec hello.js</code><br>
+        Supports: Functions, Variables, Strings, Math, Control Flow
+    </div>
+
+    <script src="hello.js"></script>
+    <script>
+        // Capture console output
+        const output = document.getElementById('output');
+        const originalLog = console.log;
+        console.log = function(...args) {
+            originalLog.apply(console, args);
+            output.textContent += args.map(a => String(a)).join(' ') + '\n';
+        };
+    </script>
+</body>
+</html>

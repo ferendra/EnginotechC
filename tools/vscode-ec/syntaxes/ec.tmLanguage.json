@@ -1,0 +1,52 @@
+{
+  "scopeName": "source.ec",
+  "name": "EnginotechC++",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#builtins" },
+    { "include": "#functions" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        { "name": "comment.line.double-slash.ec", "match": "//.*$" },
+        { "name": "comment.block.ec", "begin": "/\\*", "end": "\\*/" }
+      ]
+    },
+    "strings": [
+      {
+        "name": "string.quoted.double.ec",
+        "begin": "\"", "end": "\"",
+        "patterns": [
+          { "name": "constant.character.escape.ec", "match": "\\\\\\." },
+          { "name": "constant.language interpolation.ec", "match": "\\\\\\{[^}]*\\}" }
+        ]
+      },
+      { "name": "string.quoted.single.ec", "match": "'([^'\\\\]|\\\\.)'" }
+    ],
+    "numbers": {
+      "name": "constant.numeric.ec",
+      "match": "\\b(0x[0-9a-fA-F]+|\\d+\\.\\d+|\\d+)\\b"
+    },
+    "keywords": {
+      "name": "keyword.control.ec",
+      "match": "\\b(fn|let|mut|const|if|else|for|in|while|return|break|continue|match|struct|enum|impl|interface|import|pub|as|and|or|not)\\b"
+    },
+    "types": {
+      "name": "support.type.ec",
+      "match": "\\b(int|int8|int16|int32|int64|uint|uint8|uint16|uint32|uint64|float32|float64|bool|string|char|byte|void|Option|Result)\\b"
+    },
+    "builtins": {
+      "name": "support.function.builtin.ec",
+      "match": "\\b(print|println|input|str|int|float|abs|min|max|sqrt|pow|floor|ceil|upper|lower|contains|len|ord|chr|assert|read_file|write_file|append_file|file_exists|delete_file|substring|repeat)\\b"
+    },
+    "functions": {
+      "name": "entity.name.function.ec",
+      "match": "\\b([a-z_][A-Za-z0-9_]*)\\s*(?=\\()"
+    }
+  }
+}

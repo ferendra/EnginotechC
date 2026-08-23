@@ -1,0 +1,38 @@
+{
+    "name": "ESP32 DevKit",
+    "architecture": "xtensa",
+    "cpu": "ESP32-D0WDQ6",
+    "clock_hz": 240000000,
+    "flash_bytes": 4194304,
+    "ram_bytes": 524288,
+    "psram_bytes": 0,
+    "builtin_led_pin": 2,
+    "has_uart": true,
+    "has_spi": true,
+    "has_i2c": true,
+    "has_wifi": true,
+    "has_ble": true,
+    "upload_tool": "esptool",
+    "upload_baud": "115200",
+    "compiler_path": "xtensa-esp32-elf-gcc",
+    "linker_script": "esp32.common.ld",
+    "pins": {
+        "digital": [0, 2, 4, 5, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 23,
+                     25, 26, 27, 32, 33, 34, 35, 36, 37, 38, 39],
+        "analog": [0, 2, 3, 4, 5, 12, 13, 14, 15, 25, 26, 27, 32, 33, 34, 35, 36, 37, 38, 39],
+        "pwm": [0, 2, 4, 5, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 23,
+                25, 26, 27, 32, 33, 34, 35, 36, 37, 38, 39]
+    },
+    "uart": {
+        "port0": { "tx": 1, "rx": 3, "cts": 22, "rts": 23 },
+        "port1": { "tx": 9, "rx": 10 },
+        "port2": { "tx": 16, "rx": 17 }
+    },
+    "spi": { "mosi": 23, "miso": 19, "sck": 18, "ss": 5 },
+    "i2c": { "sda": 21, "scl": 22 },
+    "adc": {
+        "resolution_bits": 12,
+        "channels": 18,
+        "vref_mv": 3300
+    }
+}

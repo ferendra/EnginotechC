@@ -1,0 +1,43 @@
+{
+    "name": "ESP32-S3",
+    "architecture": "riscv",
+    "cpu": "ESP32-S3-FR-2",
+    "clock_hz": 240000000,
+    "flash_bytes": 4194304,
+    "ram_bytes": 524288,
+    "psram_bytes": 8388608,
+    "builtin_led_pin": 38,
+    "has_uart": true,
+    "has_spi": true,
+    "has_i2c": true,
+    "has_wifi": true,
+    "has_ble": true,
+    "upload_tool": "esptool",
+    "upload_baud": "115200",
+    "compiler_path": "xtensa-esp32s3-elf-gcc",
+    "linker_script": "esp32s3.common.ld",
+    "pins": {
+        "digital": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+                     16, 17, 18, 19, 20, 21, 33, 34, 35, 36, 37, 38, 39, 40,
+                     41, 42, 43, 44, 45, 46],
+        "analog": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+        "pwm": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+                16, 17, 18, 19, 20, 21, 33, 34, 35, 36, 37, 38, 39, 40,
+                41, 42, 43, 44, 45, 46]
+    },
+    "uart": {
+        "port0": { "tx": 43, "rx": 44 },
+        "port1": { "tx": 35, "rx": 36 },
+        "port2": { "tx": 18, "rx": 19 }
+    },
+    "spi": {
+        "hspi": { "mosi": 40, "miso": 39, "sck": 41, "ss": 42 },
+        "vspi": { "mosi": 11, "miso": 12, "sck": 13, "ss": 10 }
+    },
+    "i2c": { "sda": 8, "scl": 9 },
+    "adc": {
+        "resolution_bits": 12,
+        "channels": 10,
+        "vref_mv": 3300
+    }
+}

@@ -1,0 +1,69 @@
+name: Build & Test
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install LLVM
+        run: |
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
+          sudo add-apt-repository "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-18 main"
+          sudo apt-get update
+          sudo apt-get install -y llvm-18 clang-18
+
+      - name: Build
+        run: |
+          export LLVM_DIR=$(llvm-config-18 --cmakedir)
+          mkdir -p build && cd build
+          cmake .. -DLLVM_DIR=$LLVM_DIR -DCMAKE_BUILD_TYPE=Release
+          make -j$(nproc)
+
+      - name: Run tests
+        run: |
+          export LLVM_DIR=$(llvm-config-18 --cmakedir)
+          ./scripts/build.sh /tmp/engc
+          for f in tests/integration/*.ec; do
+            output=$(/tmp/engc build "$f" /tmp/out 2>&1)
+            if echo "$output" | grep -q "error\|Error"; then
+              echo "FAIL: $f"
+              echo "$output" | grep -E "error"
+              exit 1
+            else
+              echo "PASS: $(basename $f)"
+            fi
+          done
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install LLVM
+        run: brew install llvm
+
+      - name: Build
+        run: |
+          export LLVM_DIR=$(brew --prefix llvm)/lib/cmake/llvm
+          mkdir -p build && cd build
+          cmake .. -DLLVM_DIR=$LLVM_DIR -DCMAKE_BUILD_TYPE=Release
+          make -j$(sysctl -n hw.logicalcpu)
+
+      - name: Run tests
+        run: |
+          export LLVM_DIR=$(brew --prefix llvm)/lib/cmake/llvm
+          ./scripts/build.sh /tmp/engc
+          for f in tests/integration/*.ec; do
+            output=$(/tmp/engc build "$f" /tmp/out 2>&1)
+            if echo "$output" | grep -q "error\|Error"; then
+              echo "FAIL: $f"
+              exit 1
+            fi
+          done

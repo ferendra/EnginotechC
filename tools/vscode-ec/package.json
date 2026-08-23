@@ -1,0 +1,77 @@
+{
+	"name": "ec-language",
+	"displayName": "EnginotechC++ (EC)",
+	"description": "Syntax highlighting & diagnostics untuk bahasa EnginotechC++ (.ec)",
+	"version": "0.3.5",
+	"publisher": "enginotech",
+	"icon": "icon.png",
+	"engines": {
+		"vscode": "^1.80.0"
+	},
+	"categories": [
+		"Programming Languages"
+	],
+	"activationEvents": [
+		"onLanguage:ec"
+	],
+	"main": "./client.js",
+	"contributes": {
+		"languages": [
+			{
+				"id": "ec",
+				"aliases": [
+					"EnginotechC++",
+					"EC"
+				],
+				"extensions": [
+					".ec"
+				],
+				"configuration": "./language-configuration.json",
+				"icon": {
+					"light": "./icons/ec-lang.svg",
+					"dark": "./icons/ec-lang.svg"
+				}
+			}
+		],
+		"grammars": [
+			{
+				"language": "ec",
+				"scopeName": "source.ec",
+				"path": "./syntaxes/ec.tmLanguage.json"
+			}
+		],
+		"commands": [
+			{
+				"command": "ec.run",
+				"title": "EC: Run File",
+				"icon": "$(play)"
+			}
+		],
+		"menus": {
+			"editor/title": [
+				{
+					"command": "ec.run",
+					"when": "resourceLangId == ec",
+					"group": "navigation"
+				}
+			]
+		},
+		"keybindings": [
+			{
+				"command": "ec.run",
+				"key": "ctrl+f5",
+				"when": "resourceLangId == ec"
+			}
+		],
+		"configuration": {
+			"title": "EnginotechC++",
+			"properties": {
+				"ec.compilerPath": {
+					"type": "string",
+					"default": "engc",
+					"description": "Path ke binary engc (mis. /usr/local/bin/engc). Dipakai tombol ▶ Run File."
+				}
+			}
+		}
+	}
+}

@@ -1,0 +1,27 @@
+{
+    "name": "Arduino Nano",
+    "architecture": "avr",
+    "cpu": "ATmega328P",
+    "clock_hz": 16000000,
+    "flash_bytes": 32256,
+    "ram_bytes": 2048,
+    "eeprom_bytes": 1024,
+    "builtin_led_pin": 13,
+    "has_uart": true,
+    "has_spi": true,
+    "has_i2c": true,
+    "has_wifi": false,
+    "has_ble": false,
+    "upload_tool": "avrdude",
+    "upload_baud": "57600",
+    "compiler_path": "avr-gcc",
+    "linker_script": "",
+    "pins": {
+        "digital": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
+        "analog": [0, 1, 2, 3, 4, 5],
+        "pwm": [3, 5, 6, 9, 10, 11]
+    },
+    "uart": { "port0": { "tx": 1, "rx": 0 } },
+    "spi": { "mosi": 11, "miso": 12, "sck": 13, "ss": 10 },
+    "i2c": { "sda": 4, "scl": 5 }
+}
