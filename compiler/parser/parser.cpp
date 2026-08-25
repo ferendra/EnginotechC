@@ -129,6 +129,20 @@ std::vector<StmtPtr> Parser::parseTopLevel() {
 
 StmtPtr Parser::parseTopLevelItem() {
     Token t = current();
+    // Human-friendly alias: `function` behaves exactly like `fn`
+    if (t.type == TokenType::IDENT && t.lexeme == "function")
+        return parseFunctionDecl();
+    // Human-friendly statements (say/ask/set/repeat/give) at top level too,
+    // but keyword followed by '(' is a normal call — leave it to the switch.
+    bool parenFollows = (peekNext().type == TokenType::LPAREN);
+    if (!parenFollows && (t.type == TokenType::SAY || t.type == TokenType::PRINT ||
+        t.type == TokenType::OUTPUT || t.type == TokenType::INPUT))
+        return parseStatement();
+    if (t.type == TokenType::IDENT) {
+        const std::string& w = t.lexeme;
+        if (w == "say" || w == "ask" || w == "set" || w == "repeat" || w == "give")
+            return parseStatement();
+    }
     switch (t.type) {
         case TokenType::FN: return parseFunctionDecl();
         case TokenType::STRUCT: return parseStructDecl();
@@ -245,7 +259,13 @@ StmtPtr Parser::tryParseAssignment() {
 
 StmtPtr Parser::parseFunctionDecl() {
     Token fnTok = current();
-    expect(TokenType::FN, "function declaration");
+    // Human-friendly alias: `function` is accepted wherever `fn` is expected
+    if (fnTok.type == TokenType::IDENT && fnTok.lexeme == "function") {
+        pos_++;
+        fnTok = current();
+    } else {
+        expect(TokenType::FN, "function declaration");
+    }
     std::string name = parseIdentifier();
     bool isMain = (name == "main");
     if (isMain) currentIsMain_ = true;
@@ -421,6 +441,85 @@ StmtPtr Parser::parseConstDecl() {
 
 StmtPtr Parser::parseStatement() {
     Token t = current();
+    // ── Human-friendly syntax (v0.4.0) ──────────────────────────────
+    // These read like plain language; each maps onto existing AST.
+    if (t.type == TokenType::IDENT || t.type == TokenType::SAY ||
+        t.type == TokenType::PRINT || t.type == TokenType::OUTPUT ||
+        t.type == TokenType::INPUT) {
+        // function ...  →  fn ... (alias, works anywhere)
+        if (t.type == TokenType::IDENT && t.lexeme == "function")
+            return parseFunctionDecl();
+        // give <expr>;  /  give;  →  return
+        if (t.type == TokenType::IDENT && t.lexeme == "give") {
+            pos_++;
+            std::optional<ExprPtr> val;
+            if (current().type != TokenType::SEMICOLON &&
+                current().type != TokenType::RBRACE &&
+                current().type != TokenType::TOKEN_EOF) {
+                val = parseExpression();
+            }
+            if (current().type == TokenType::SEMICOLON) pos_++;
+            return std::make_shared<ReturnStmt>(val, t.line, t.col);
+        }
+        // say <expr>; / print <expr>; / output <expr>;  →  print(<expr>);
+        // (only when NOT followed by '(' — that's a normal call expression)
+        bool parenNext = (peekNext().type == TokenType::LPAREN);
+        if (!parenNext && (t.type == TokenType::SAY || t.type == TokenType::PRINT ||
+            t.type == TokenType::OUTPUT ||
+            (t.type == TokenType::IDENT && t.lexeme == "say"))) {
+            pos_++;
+            ExprPtr arg = parseExpression();
+            if (current().type == TokenType::SEMICOLON) pos_++;
+            auto callee = std::make_shared<IdentExpr>("print", t.line, t.col);
+            std::vector<ExprPtr> args{arg};
+            auto call = std::make_shared<CallExpr>(callee, args, t.line, t.col);
+            return std::make_shared<ExprStmt>(call, t.line, t.col);
+        }
+        // ask <id>;  →  mut id = input();
+        // (input(...) with parens stays a normal call)
+        bool askParen = (peekNext().type == TokenType::LPAREN);
+        if (!askParen && (t.type == TokenType::INPUT ||
+            (t.type == TokenType::IDENT && t.lexeme == "ask"))) {
+            pos_++;
+            std::string name = parseIdentifier();
+            if (current().type == TokenType::SEMICOLON) pos_++;
+            auto callee = std::make_shared<IdentExpr>("input", t.line, t.col);
+            std::vector<ExprPtr> args;
+            auto call = std::make_shared<CallExpr>(callee, args, t.line, t.col);
+            return std::make_shared<MutStmt>(name, nullptr, call, t.line, t.col);
+        }
+        // set <id> = <expr>;   |   set <id> to <expr>;
+        // Declares a mutable variable (or re-assigns later via plain `=`).
+        if (t.lexeme == "set") {
+            pos_++;
+            std::string name = parseIdentifier();
+            bool toWord = (current().type == TokenType::IDENT && current().lexeme == "to");
+            if (toWord) {
+                pos_++;                       // accept the English word "to"
+            } else if (current().type == TokenType::EQUAL) {
+                pos_++;                       // also accept '='
+            } else {
+                errorAt(current(), "Expected '=' or 'to' after 'set <name>'");
+            }
+            ExprPtr val = parseExpression();
+            if (current().type == TokenType::SEMICOLON) pos_++;
+            return std::make_shared<MutStmt>(name, nullptr, val, t.line, t.col);
+        }
+        // repeat <expr> times <block>;  →  for __i in 0..n { ... }
+        if (t.lexeme == "repeat") {
+            pos_++;
+            ExprPtr count = parseExpression(P_ADD);
+            // Accept the plural marker word "times" when present
+            if (current().type == TokenType::IDENT && current().lexeme == "times")
+                pos_++;
+            auto body = parseStatement();     // handles braces itself
+            ClassifyResult zeroVal;
+            zeroVal.kind = ClassifyResult::Integer;
+            ExprPtr zero = std::make_shared<LiteralExpr>(zeroVal, "0", t.line, t.col);
+            ExprPtr range = std::make_shared<RangeExpr>(zero, count, false, t.line, t.col);
+            return std::make_shared<ForStmt>("__i", range, body, t.line, t.col);
+        }
+    }
     switch (t.type) {
         case TokenType::FN: return parseFunctionDecl();
         case TokenType::STRUCT: return parseStructDecl();
@@ -828,9 +927,23 @@ bool Parser::isUnaryOp(TokenType t) const {
 }
 
 ExprPtr Parser::parseExpression(int minPrec) {
+    // Human-friendly operator words (v0.4.0): is/and/or/not
+    auto humanizeOp = [](Token tk) -> Token {
+        if (tk.type == TokenType::IDENT) {
+            if (tk.lexeme == "is")       tk.type = TokenType::EQ;
+            else if (tk.lexeme == "and") tk.type = TokenType::AND;
+            else if (tk.lexeme == "or")  tk.type = TokenType::OR;
+            else if (tk.lexeme == "not") tk.type = TokenType::NOT;
+        }
+        return tk;
+    };
+
     ExprPtr left;
-    if (isUnaryOp(current().type)) {
+    Token leadTok = current();
+    bool leadIsWordNot = (leadTok.type == TokenType::IDENT && leadTok.lexeme == "not");
+    if (isUnaryOp(leadTok.type) || leadIsWordNot) {
         Token opTok = current();
+        if (leadIsWordNot) opTok.type = TokenType::NOT;
         pos_++;
         auto operand = parseExpression(P_UNARY);
         left = std::make_shared<UnaryOpExpr>(opTok.type, operand, opTok.line, opTok.col);
@@ -840,6 +953,7 @@ ExprPtr Parser::parseExpression(int minPrec) {
 
     while (true) {
         Token op = current();
+        op = humanizeOp(op);
         if (!isBinaryOp(op.type)) break;
         int prec = precedenceFor(op.type);
         if (prec < minPrec) break;

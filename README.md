@@ -152,6 +152,41 @@ engc build --target baremetal kernel.ec kernel.bin
 qemu-system-x86_64 -kernel kernel.bin
 ```
 
+## 🗣️ Human-Friendly Syntax (v0.4.0)
+
+Write code that reads like plain language — every construct maps onto standard EC:
+
+```ec
+function main() {
+    set counter = 3            // declare a mutable variable
+    set total to 0             // '=' or the word 'to' both work
+
+    repeat counter times {     // loop exactly N times
+        say "tick"             // print without parentheses
+    }
+
+    for i in 1..4 {
+        total += i
+    }
+
+    if total is 6 and not false {
+        say "sum = " + str(total)
+    }
+}
+```
+
+| Human word | Meaning |
+|------------|---------|
+| `say <expr>` | `print(<expr>)` (also bare `print` / `output`) |
+| `set x = v` / `set x to v` | declare mutable variable |
+| `ask name` | `mut name = input()` |
+| `repeat n times { }` | `for __i in 0..n { }` |
+| `give [expr]` | `return` |
+| `function f() {}` | alias for `fn` |
+| `is`, `and`, `or`, `not` | `==`, `&&`, `\|\|`, `!` |
+
+See [examples/human/main.ec](examples/human/main.ec).
+
 ## 🚀 M1–M4 Features (v0.3.0)
 
 ### Dynamic Typing Mode (`--dynamic`)
