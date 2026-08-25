@@ -162,13 +162,17 @@ std::string LLVMIRGenerator::generate(const Program& prog) {
     irStream_ << "declare double @pow(double, double)\n";
     irStream_ << "declare double @floor(double)\n";
     irStream_ << "declare double @ceil(double)\n";
-    irStream_ << "@stdin = external global ptr\n\n";
+
+    // Portable stdin accessor — the actual symbol lives in a tiny C shim
+    // (see compile(): <out>.ecshim.c) because `stdin` is not a linkable
+    // global on Windows (UCRT exposes it via __acrt_iob_func).
+    irStream_ << "declare ptr @ec_stdin_handle()\n\n";
 
     // input(): read one line from stdin (newline stripped), malloc'd buffer
     irStream_ << "define ptr @eng_input() {\n";
     irStream_ << "entry:\n";
     irStream_ << "  %buf = call ptr @malloc(i64 4096)\n";
-    irStream_ << "  %st = load ptr, ptr @stdin\n";
+    irStream_ << "  %st = call ptr @ec_stdin_handle()\n";
     irStream_ << "  %ok = call ptr @fgets(ptr %buf, i32 4096, ptr %st)\n";
     irStream_ << "  %isnull = icmp eq ptr %ok, null\n";
     irStream_ << "  br i1 %isnull, label %empty, label %strip\n";
@@ -742,6 +746,21 @@ std::string LLVMIRGenerator::generate(const Program& prog) {
             emitImpl(static_cast<ImplDecl*>(item.get()));
     }
 
+    // M2: methods declared inside struct bodies (inline impl style)
+    for (const auto& item : prog.topLevel) {
+        if (item && item->kind() == StmtKind::StructDecl) {
+            auto* st = static_cast<StructDecl*>(item.get());
+            if (!st->methods.empty()) {
+                curSelfType_ = st->name;
+                for (const auto& m : st->methods) {
+                    if (m && m->kind() == StmtKind::FunctionDecl)
+                        emitFunction(static_cast<FunctionDecl*>(m.get()));
+                }
+                curSelfType_.clear();
+            }
+        }
+    }
+
     // Ensure main exists — Python-style script mode:
     // top-level statements become the body of an implicit main().
     if (!functions_.count("main")) {
@@ -791,9 +810,20 @@ void LLVMIRGenerator::declareTopLevel(const Program& prog) {
     for (const auto& item : prog.topLevel) {
         if (!item) continue;
         switch (item->kind()) {
-            case StmtKind::StructDecl:
-                registerStruct(static_cast<StructDecl*>(item.get()));
+            case StmtKind::StructDecl: {
+                auto* st = static_cast<StructDecl*>(item.get());
+                registerStruct(st);
+                // M2: methods declared inside struct body act like an inline impl
+                if (!st->methods.empty()) {
+                    curSelfType_ = st->name;
+                    for (const auto& m : st->methods) {
+                        if (m && m->kind() == StmtKind::FunctionDecl)
+                            registerFunction(static_cast<FunctionDecl*>(m.get()));
+                    }
+                    curSelfType_.clear();
+                }
                 break;
+            }
             case StmtKind::EnumDecl:
                 registerEnum(static_cast<EnumDecl*>(item.get()));
                 break;
@@ -839,8 +869,11 @@ void LLVMIRGenerator::registerFunction(const FunctionDecl* fn) {
     FnSig sig;
     sig.ret = getTypeStr(fn->returnType);
     for (const auto& [pname, ptype] : fn->params) {
-        (void)pname;
-        sig.params.push_back(getTypeStr(ptype));
+        // M2: untyped `self` on a method inherits the owner struct type
+        TypePtr t = ptype;
+        if (method && !t && pname == "self" && sig.params.empty())
+            t = std::make_shared<BasicType>(curSelfType_);
+        sig.params.push_back(getTypeStr(t));
     }
     const std::string key = method ? curSelfType_ + "." + fn->name : fn->name;
     sigs_[key] = sig;
@@ -888,13 +921,19 @@ void LLVMIRGenerator::emitFunction(const FunctionDecl* fn) {
     const bool method = !curSelfType_.empty();
     const std::string key = method ? curSelfType_ + "." + fn->name : fn->name;
 
+    // M2: normalize untyped `self` to the owner struct type once, up front,
+    // so signature build, IR define, slots and stores all agree.
+    std::vector<std::pair<std::string, TypePtr>> params = fn->params;
+    if (method && !params.empty() && params[0].first == "self" && !params[0].second)
+        params[0].second = std::make_shared<BasicType>(curSelfType_);
+
     FnSig sig;
     auto sit = sigs_.find(key);
     if (sit != sigs_.end()) {
         sig = sit->second;
     } else {
         sig.ret = getTypeStr(fn->returnType);
-        for (const auto& [pn, pt] : fn->params) {
+        for (const auto& [pn, pt] : params) {
             (void)pn;
             sig.params.push_back(getTypeStr(pt));
         }
@@ -916,7 +955,7 @@ void LLVMIRGenerator::emitFunction(const FunctionDecl* fn) {
 
     irStream_ << "define " << curRetTy_ << " @" << symbol << "(";
     bool first = true;
-    for (const auto& [pname, ptype] : fn->params) {
+    for (const auto& [pname, ptype] : params) {
         if (!first) irStream_ << ", ";
         irStream_ << getLLVMType(ptype ? ptype->getName() : "int") << " %" << pname;
         first = false;
@@ -924,7 +963,7 @@ void LLVMIRGenerator::emitFunction(const FunctionDecl* fn) {
     irStream_ << ") {\nentry:\n";
 
     // Parameter slots
-    for (const auto& [pname, ptype] : fn->params) {
+    for (const auto& [pname, ptype] : params) {
         declareSlot(pname, ptype);
     }
 
@@ -936,7 +975,7 @@ void LLVMIRGenerator::emitFunction(const FunctionDecl* fn) {
     emitEntryAllocas();
 
     // Store incoming parameter values into their slots
-    for (const auto& [pname, ptype] : fn->params) {
+    for (const auto& [pname, ptype] : params) {
         (void)ptype;
         auto it = slots_.find(pname);
         if (it == slots_.end()) continue;
@@ -2639,6 +2678,12 @@ void LLVMIRGenerator::collectStringsFromStmt(const StmtPtr& stmt, std::vector<st
             for (const auto& m : im->methods) collectStringsFromStmt(m, out);
             break;
         }
+        case StmtKind::StructDecl: {
+            // M2: collect strings from methods declared inside struct body
+            auto* st = static_cast<StructDecl*>(stmt.get());
+            for (const auto& m : st->methods) collectStringsFromStmt(m, out);
+            break;
+        }
         case StmtKind::Block:
             collectStrings(static_cast<BlockStmt*>(stmt.get())->body, out);
             break;
@@ -3047,6 +3092,19 @@ bool LLVMIRGenerator::compile(const Program& prog, const std::string& outputPath
         irFile << ir;
     }
 
+    // Tiny C shim: exposes the real stdin handle portably (POSIX global vs
+    // UCRT __acrt_iob_func). Compiled and linked together with the IR.
+    std::string shimPath = outputPath + ".ecshim.c";
+    {
+        std::ofstream shim(shimPath);
+        if (!shim) {
+            error("Cannot write shim file: " + shimPath);
+            return false;
+        }
+        shim << "#include <stdio.h>\n"
+             << "void* ec_stdin_handle(void) { return (void*)stdin; }\n";
+    }
+
 #ifdef _WIN32
     const char pathSep = ';';
     const std::string clangName = "clang.exe";
@@ -3058,6 +3116,15 @@ bool LLVMIRGenerator::compile(const Program& prog, const std::string& outputPath
 #endif
 
     auto findTool = [&](const std::string& name) -> std::string {
+        // Windows: fs::exists does not append .exe — probe both spellings.
+        auto existsTool = [](const std::string& base) -> std::string {
+            if (base.empty()) return "";
+            if (fs::exists(base)) return base;
+#ifdef _WIN32
+            if (fs::exists(base + ".exe")) return base + ".exe";
+#endif
+            return "";
+        };
         // 1) Explicit override wins (set per machine, e.g. EC_CLANG=/path/to/clang)
         if (name == clangName) {
             const char* envClang = std::getenv("EC_CLANG");
@@ -3070,8 +3137,8 @@ bool LLVMIRGenerator::compile(const Program& prog, const std::string& outputPath
             std::string dir;
             while (std::getline(iss, dir, pathSep)) {
                 if (dir.empty()) continue;
-                std::string candidate = dir + "/" + name;
-                if (fs::exists(candidate)) return candidate;
+                std::string found = existsTool(dir + "/" + name);
+                if (!found.empty()) return found;
             }
         }
         // 3) Fallback absolute locations — compilers must work even when the
@@ -3079,6 +3146,12 @@ bool LLVMIRGenerator::compile(const Program& prog, const std::string& outputPath
         std::string localBin;
         if (const char* home = std::getenv("HOME"))
             localBin = std::string(home) + "/.local/bin";
+#ifdef _WIN32
+        if (localBin.empty()) {
+            if (const char* up = std::getenv("USERPROFILE"))
+                localBin = std::string(up) + "/.local/bin";
+        }
+#endif
         std::vector<std::string> extraDirs = {
             "/tmp/opencode/bin",          // dev toolchain on this machine
             localBin,                     // persistent user installs (~/.local/bin)
@@ -3089,9 +3162,8 @@ bool LLVMIRGenerator::compile(const Program& prog, const std::string& outputPath
             "/usr/lib/llvm-14/bin",
         };
         for (const auto& d : extraDirs) {
-            if (d.empty()) continue;
-            std::string candidate = d + "/" + name;
-            if (fs::exists(candidate)) return candidate;
+            std::string found = existsTool(d.empty() ? d : d + "/" + name);
+            if (!found.empty()) return found;
         }
         // 4) Versioned clang binaries (clang-18 … clang-14)
         if (name == clangName) {
@@ -3121,7 +3193,8 @@ bool LLVMIRGenerator::compile(const Program& prog, const std::string& outputPath
     }
     if (!cl.empty()) {
         std::string cmd = cl + (viaZig ? " cc" : "") + " -O2 \"" + irPath +
-                          "\" -o \"" + outPath + "\"";
+                          "\" \"" + shimPath + "\"" +
+                          " -o \"" + outPath + "\"";
 #ifndef _WIN32
         cmd += " -lm"; // libm: sqrt/pow/floor/ceil
 #endif

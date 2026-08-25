@@ -290,27 +290,39 @@ StmtPtr Parser::parseStructDecl() {
     if (!expect(TokenType::LBRACE, "struct body")) return nullptr;
 
     std::vector<std::pair<std::string, TypePtr>> fields;
+    std::vector<StmtPtr> methods;
+
+    // Parse mixed body: fields AND/OR methods in any order
     while (current().type != TokenType::RBRACE && current().type != TokenType::TOKEN_EOF) {
-        std::string fname = parseIdentifier();
-        if (current().type == TokenType::COLON) {
-            pos_++;
-            TypePtr ftype = parseType();
-            fields.emplace_back(fname, ftype);
-        } else {
-            errorAt(current(), "Expected ': type' after field name");
-        }
-        if (current().type == TokenType::SEMICOLON) pos_++;
-        else if (current().type == TokenType::COMMA) pos_++;
-        else if (current().type != TokenType::RBRACE) {
-            // auto-advance
-            if (current().type != TokenType::RBRACE) {
-                errorAt(current(), "Expected ';' or ',' between struct fields");
+        if (current().type == TokenType::FN) {
+            // Method definition inside struct
+            auto fnDecl = parseFunctionDecl();
+            if (fnDecl) {
+                methods.push_back(fnDecl);
+            } else {
+                // Error recovery: skip token
                 pos_++;
+            }
+        } else {
+            // Field definition
+            std::string fname = parseIdentifier();
+            if (current().type == TokenType::COLON) {
+                pos_++;
+                TypePtr ftype = parseType();
+                fields.emplace_back(fname, ftype);
+            } else {
+                errorAt(current(), "Expected ': type' after field name");
+            }
+            if (current().type == TokenType::SEMICOLON) pos_++;
+            else if (current().type == TokenType::COMMA) pos_++;
+            else if (current().type != TokenType::RBRACE) {
+                errorAt(current(), "Expected ';' or ',' between struct members");
             }
         }
     }
     expect(TokenType::RBRACE, "struct body");
-    return std::make_shared<StructDecl>(name, fields, stTok.line, stTok.col);
+
+    return std::make_shared<StructDecl>(name, fields, methods, stTok.line, stTok.col);
 }
 
 StmtPtr Parser::parseEnumDecl() {
@@ -380,8 +392,17 @@ StmtPtr Parser::parseImportStmt() {
     Token imTok = current();
     expect(TokenType::IMPORT, "import statement");
     std::string path;
+    // M3: preserve dots so "std.io" resolves as a module path
+    bool lastWasDot = true; // start true so a leading dot would be an error later anyway
     while (current().type == TokenType::IDENT || current().type == TokenType::DOT) {
-        path += current().lexeme;
+        if (current().type == TokenType::DOT) {
+            if (lastWasDot) { errorAt(current(), "Malformed import path"); }
+            path += ".";
+            lastWasDot = true;
+        } else {
+            path += current().lexeme;
+            lastWasDot = false;
+        }
         pos_++;
     }
     if (current().type == TokenType::SEMICOLON) pos_++;

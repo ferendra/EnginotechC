@@ -3,7 +3,7 @@
 
 namespace eng {
 
-TypeChecker::TypeChecker(DiagnosticEngine& diag) : diag_(diag) {}
+TypeChecker::TypeChecker(DiagnosticEngine& diag, bool dynamicTyping) : diag_(diag), dynamicTyping_(dynamicTyping) {}
 
 std::string TypeChecker::normalizeType(const std::string& name) const {
     std::string n = name;
@@ -195,6 +195,23 @@ void TypeChecker::typeCheckExpr(const ExprPtr& expr) {
                         expr->type = std::make_shared<BasicType>("void");
                         break;
                     }
+                    // Built-in functions with fixed return types
+                    {
+                        static const std::unordered_map<std::string, std::string> builtinRet = {
+                            {"str", "string"},   {"input", "string"},
+                            {"chr", "string"},   {"read_line", "string"},
+                            {"len", "int"},      {"abs", "int"},
+                            {"min", "int"},      {"max", "int"},
+                            {"sqrt", "float64"}, {"pow", "float64"},
+                            {"floor", "float64"},{"ceil", "float64"},
+                        };
+                        auto bit = builtinRet.find(calleeIdent->name);
+                        if (bit != builtinRet.end()) {
+                            for (auto& arg : call->args) typeCheckExpr(arg);
+                            expr->type = std::make_shared<BasicType>(bit->second);
+                            break;
+                        }
+                    }
                     // Check for user-defined functions
                     if (fnRetTypes_.count(calleeIdent->name)) {
                         expr->type = fnRetTypes_[calleeIdent->name];
@@ -270,7 +287,12 @@ void TypeChecker::typeCheckExpr(const ExprPtr& expr) {
                         expr->type = std::make_shared<BasicType>("int");
                     }
                 } else {
-                    expr->type = std::make_shared<BasicType>("unknown");
+                    // String indexing yields a char (compared/used as int in codegen)
+                    if (baseTypeName == "string") {
+                        expr->type = std::make_shared<BasicType>("int");
+                    } else {
+                        expr->type = std::make_shared<BasicType>("unknown");
+                    }
                 }
             } else {
                 expr->type = std::make_shared<BasicType>("unknown");
@@ -358,7 +380,15 @@ void TypeChecker::checkStmt(const StmtPtr& stmt) {
                             mutableVars_[forStmt->varName] = true;
                         }
                     }
+                } else {
+                    // Range loop (for i in 0..n) — the variable is an integer
+                    symbols_[forStmt->varName] = std::make_shared<BasicType>("int");
+                    mutableVars_[forStmt->varName] = true;
                 }
+            } else {
+                // No iterable type info — assume integer loop variable
+                symbols_[forStmt->varName] = std::make_shared<BasicType>("int");
+                mutableVars_[forStmt->varName] = true;
             }
             checkStmt(forStmt->body);
             break;
@@ -387,13 +417,17 @@ void TypeChecker::checkStmt(const StmtPtr& stmt) {
     }
 }
 
-void TypeChecker::typeCheckFn(const FunctionDecl* fn) {
+void TypeChecker::typeCheckFn(const FunctionDecl* fn, bool dynamicTyping) {
     if (!fn) return;
     for (const auto& [name, type] : fn->params) {
         symbols_[name] = type;
         mutableVars_[name] = false;
     }
     for (auto& stmt : fn->body) checkStmt(stmt);
+    // In dynamic typing mode, allow nullptr return type (no explicit -> type)
+    if (dynamicTyping && fn->returnType == nullptr) {
+        // Allow - function can have dynamic return type
+    }
 }
 
 void TypeChecker::typeCheckFnParam(const std::string& name, TypePtr type, int line, int col) {
@@ -426,7 +460,7 @@ void TypeChecker::check(const std::vector<StmtPtr>& items) {
                 auto* fn = static_cast<FunctionDecl*>(item.get());
                 declaredFns_.insert(fn->name);
                 fnRetTypes_[fn->name] = fn->returnType;
-                typeCheckFn(fn);
+                typeCheckFn(fn, dynamicTyping_);
                 break;
             }
             default: break;

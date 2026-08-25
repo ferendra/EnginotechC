@@ -31,7 +31,7 @@ DEFS="-DENG_VERSION=\"${VERSION}\""
 
 # Auto-glob semua modul kecuali folder tes, berkas yang menuntut dependensi
 # eksternal yang tidak tersedia, dan implementasi platform alternatif.
-EXCLUDE_RE='^compiler/codegen/llvcodegen\.cpp$|^compiler/platform/platform_(windows|posix)\.cpp$|^compiler/targets/etskeleton\.cpp$|^compiler/ets/'
+EXCLUDE_RE='^compiler/codegen/llvcodegen\.cpp$|^compiler/platform/platform_(windows|posix|common)\.cpp$|^compiler/targets/etskeleton\.cpp$|^compiler/ets/'
 mapfile -t SRCS < <(find compiler std runtime packages build-system formatter linter langserver \
                     -name '*.cpp' -not -path '*/tests/*' \
                     | grep -Ev "$EXCLUDE_RE" | sort)

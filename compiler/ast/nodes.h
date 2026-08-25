@@ -325,8 +325,11 @@ struct FunctionDecl : public Stmt {
 struct StructDecl : public Stmt {
     std::string name;
     std::vector<std::pair<std::string, TypePtr>> fields;
+    std::vector<StmtPtr> methods;  // Methods/functions inside struct
     StructDecl(const std::string& n, std::vector<std::pair<std::string, TypePtr>> f, int ln, int cl)
         : Stmt(ln, cl), name(n), fields(std::move(f)) {}
+    StructDecl(const std::string& n, std::vector<std::pair<std::string, TypePtr>> f, std::vector<StmtPtr> m, int ln, int cl)
+        : Stmt(ln, cl), name(n), fields(std::move(f)), methods(std::move(m)) {}
     StmtKind kind() const override { return StmtKind::StructDecl; }
 };
 

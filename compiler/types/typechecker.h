@@ -12,7 +12,7 @@ namespace eng {
 
 class TypeChecker {
 public:
-    explicit TypeChecker(DiagnosticEngine& diag);
+    explicit TypeChecker(DiagnosticEngine& diag, bool dynamicTyping = false);
 
     void check(const std::vector<StmtPtr>& items);
     bool hasErrors() const { return diag_.hasErrors(); }
@@ -29,7 +29,7 @@ private:
     void error(const std::string& code, const std::string& message, int line, int col);
     void typeCheckLet(const LetStmt* stmt);
     void typeCheckMut(const MutStmt* stmt);
-    void typeCheckFn(const FunctionDecl* stmt);
+    void typeCheckFn(const FunctionDecl* stmt, bool dynamicTyping = false);
     void typeCheckExpr(const ExprPtr& expr);
     void typeCheckFnParam(const std::string& name, TypePtr type, int line, int col);
     void typeCheckReturn(const ReturnStmt* stmt, const FunctionDecl* fn);
@@ -42,6 +42,7 @@ private:
     void checkStructDecls(const std::vector<StmtPtr>& items);
 
     DiagnosticEngine& diag_;
+    bool dynamicTyping_;
     std::unordered_map<std::string, TypePtr> symbols_;
     std::unordered_map<std::string, bool> mutableVars_;
     std::unordered_set<std::string> declaredFns_;

@@ -151,3 +151,75 @@ node hello.js
 engc build --target baremetal kernel.ec kernel.bin
 qemu-system-x86_64 -kernel kernel.bin
 ```
+
+## 🚀 M1–M4 Features (v0.3.0)
+
+### Dynamic Typing Mode (`--dynamic`)
+
+Return types become optional — Python-style:
+
+```ec
+// With --dynamic flag:
+fn add(a, b) { return a + b; }   // no -> int required!
+
+// Static mode still works (default):
+fn add(a: int, b: int) -> int { return a + b; }
+```
+
+```bash
+engc run --dynamic script.ec out
+```
+
+### Interactive REPL
+
+```bash
+engc repl
+>>> let x = 42
+; ok
+>>> .exit
+```
+
+### Struct Methods (inline)
+
+Methods can be declared directly inside struct bodies — `self` is the explicit first parameter:
+
+```ec
+struct Point {
+    x: int;
+    y: int;
+
+    fn dist(self) -> int {
+        return self.x * self.x + self.y * self.y;
+    }
+}
+
+fn main() {
+    let p = Point { x: 3, y: 4 };
+    print(str(p.dist()));   // dot-notation method call
+}
+```
+
+Classic `impl Point { ... }` blocks continue to work.
+
+### Modules & Imports
+
+`import` statements now resolve to real files. Search order:
+
+1. `<dir of importing file>/<path>.ec`
+2. `./<path>.ec`
+3. `./std/<path>.ec`
+4. `.ec_packages/<path>.ec` (installed packages)
+
+```ec
+import mathutil;        // loads mathutil.ec from the same directory
+import mylib.utils;     // loads mylib/utils.ec (dots → slashes)
+```
+
+Installed packages participate automatically:
+
+```bash
+engc add mylib          # installs into .ec_packages/
+```
+```ec
+import mylib;           // compiler finds it in .ec_packages/mylib/
+```

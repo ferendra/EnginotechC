@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # Uji lib/std.ec: gabung library + body tes → compile → run.
-# (Jembatan sampai import system multi-file siap.)
+# (Catatan: kini sudah ada import system multi-file; penggabungan tetap
+#  dipakai untuk menguji lib sebagai satu unit.)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-OUT="${1:-/tmp/opencode/libtest}"
+BIN="${BIN:-./engc.exe}"
+OUT="${TMPDIR:-/tmp}/opencode/libtest"
 cat lib/std.ec lib/test_std.ec > "$OUT.ec"
 # Ignore exit code due to pre-existing runtime cleanup crash
-OUTPUT=$(/tmp/opencode/engc run "$OUT.ec" "$OUT" 2>&1) || true
+OUTPUT=$("$BIN" run "$OUT.ec" "$OUT" 2>&1) || true
 if echo "$OUTPUT" | grep -q "OK"; then
     echo "lib/std OK"
     exit 0

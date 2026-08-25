@@ -17,15 +17,21 @@
 #include "../../packages/registry/registry.h"
 #include "../../packages/manager/manager.h"
 #include "../../langserver/langserver.h"
+#include "../repl/repl.h"
 #include "embedded.h"
 #include <iostream>
 #include <fstream>
 #include <sstream>
 #include <string>
 #include <filesystem>
+#include <unordered_set>
 
 namespace eng {
 namespace fs = std::filesystem;
+
+// M1: process-wide dynamic typing flag (--dynamic)
+static bool g_dynamicTyping = false;
+static bool dynamicTypingEnabled() { return g_dynamicTyping; }
 
 class EngCompiler {
 public:
@@ -39,17 +45,19 @@ public:
     static Result run(const std::vector<std::string>& args);
     static Result cmdVersion();
     static Result cmdNew(const std::string& path);
-    static Result cmdRun(const std::string& sourcePath, const std::string& outputPath);
+    static Result cmdRun(const std::string& sourcePath, const std::string& outputPath, bool dynamicTyping = false);
     static Result cmdRunEmbedded(const std::string& sourcePath,
                                   const std::string& outputPath,
-                                  bool arduinoMode);
-    static Result cmdBuild(const std::string& sourcePath, const std::string& outputPath);
-    static Result cmdTest(const std::string& testDir);
+                                  bool arduinoMode,
+                                  bool dynamicTyping = false);
+    static Result cmdBuild(const std::string& sourcePath, const std::string& outputPath, bool dynamicTyping = false);
+    static Result cmdTest(const std::string& testDir, bool dynamicTyping = false);
     static Result cmdFmt(const std::string& sourcePath);
     static Result cmdLint(const std::string& sourcePath);
     static Result cmdDoc(const std::string& sourcePath);
     static Result cmdHelp();
     static Result cmdLSP();
+    static Result cmdRepl();
     // Embedded commands
     static Result cmdBuildEmbedded(const std::vector<std::string>& args);
     static Result cmdFlash(const std::vector<std::string>& args);
@@ -118,9 +126,9 @@ EngCompiler::Result EngCompiler::cmdNew(const std::string& path) {
     return {true, "", "Created project at: " + path, 0};
 }
 
-EngCompiler::Result EngCompiler::cmdRun(const std::string& sourcePath, const std::string& outputPath) {
+EngCompiler::Result EngCompiler::cmdRun(const std::string& sourcePath, const std::string& outputPath, bool dynamicTyping) {
     printf("cmdRun: %s -> %s\n", sourcePath.c_str(), outputPath.c_str()); fflush(stderr);
-    return cmdRunEmbedded(sourcePath, outputPath, false);
+    return cmdRunEmbedded(sourcePath, outputPath, false, dynamicTyping);
 }
 
 // Helper: runs a .ec file, optionally targeting Arduino (sketch gen) or LLVM native
@@ -129,9 +137,87 @@ static bool detectEmbeddedPattern(const Program& prog) {
     return false; // let explicit --target flag decide
 }
 
+// ── M3: Module System ────────────────────────────────────────────────
+// Resolve `import foo.bar;` statements by loading the matching .ec file
+// and splicing its top-level declarations into the program.
+// Search order: <dir-of-importing-file>/<path>.ec → ./<path>.ec → ./std/<path>.ec
+
+static void resolveImportsRec(Program& prog, const fs::path& sourcePath,
+                              DiagnosticEngine& diag,
+                              std::unordered_set<std::string>& visited) {
+    std::vector<StmtPtr> kept;
+    std::vector<StmtPtr> imports;
+    for (auto& item : prog.topLevel) {
+        if (item && item->kind() == StmtKind::Import) imports.push_back(item);
+        else kept.push_back(item);
+    }
+    prog.topLevel = std::move(kept);
+
+    fs::path baseDir = fs::path(sourcePath).parent_path();
+    if (baseDir.empty()) baseDir = ".";
+
+    for (auto& imp : imports) {
+        auto* im = static_cast<ImportStmt*>(imp.get());
+        std::string rel = im->modulePath;
+        for (auto& c : rel) if (c == '.') c = '/';
+        const std::string candidate = rel + ".ec";
+
+        fs::path resolved;
+        fs::path p1 = baseDir / candidate;
+        fs::path p2 = fs::path(candidate);
+        fs::path p3 = fs::path("std") / candidate;
+        // M4: installed packages live in .ec_packages/<pkg>/...
+        fs::path p4 = baseDir / ".ec_packages" / candidate;
+        if (fs::exists(p1))      resolved = p1;
+        else if (fs::exists(p2)) resolved = p2;
+        else if (fs::exists(p3)) resolved = p3;
+        else if (fs::exists(p4)) resolved = p4;
+        else {
+            diag.error("M000", "Cannot resolve import: " + im->modulePath, im->line, im->col);
+            continue;
+        }
+
+        std::error_code ec;
+        std::string key = fs::weakly_canonical(resolved, ec).string();
+        if (ec) key = resolved.string();
+        if (!visited.insert(key).second) continue; // duplicate/cycle guard
+
+        std::ifstream f(resolved);
+        if (!f) {
+            diag.error("M001", "Cannot open import: " + resolved.string(), im->line, im->col);
+            continue;
+        }
+        std::stringstream ss;
+        ss << f.rdbuf();
+
+        Lexer lx(ss.str());
+        auto toks = lx.tokenize();
+        for (const auto& d : lx.diagnostics) {
+            diag.error("L000", d.message, d.line, d.col);
+        }
+        Parser px(toks, diag);
+        Program sub = px.parse();
+
+        // Depth-first: nested imports of this module are resolved first
+        resolveImportsRec(sub, resolved, diag, visited);
+
+        // Splice dependencies before current declarations
+        prog.topLevel.insert(prog.topLevel.begin(),
+                             sub.topLevel.begin(), sub.topLevel.end());
+    }
+}
+
+static void resolveImports(Program& prog, const fs::path& sourcePath,
+                           DiagnosticEngine& diag) {
+    std::unordered_set<std::string> visited;
+    resolveImportsRec(prog, sourcePath, diag, visited);
+}
+
+
 EngCompiler::Result EngCompiler::cmdRunEmbedded(const std::string& sourcePath,
                                                  const std::string& outputPath,
-                                                 bool arduinoMode) {
+                                                 bool arduinoMode,
+                                                 bool dynamicTyping) {
     DiagnosticEngine diag;
     FILE* f = fopen("/tmp/typecheck_debug.txt", "w"); fprintf(f, "cmdRunEmbedded START\n"); fclose(f);
     std::string source = readFile(sourcePath);
@@ -149,10 +235,13 @@ EngCompiler::Result EngCompiler::cmdRunEmbedded(const std::string& sourcePath,
     Parser parser(tokens, diag);
     auto prog = parser.parse();
 
+    // M3: resolve imports into a single merged program
+    resolveImports(prog, sourcePath, diag);
+
     SemanticAnalyzer sa(diag);
     sa.analyze(prog.topLevel);
 
-    TypeChecker tc(diag);
+    TypeChecker tc(diag, dynamicTyping);
     tc.check(prog.topLevel);
 
     // Front-end failed? Report everything gathered so far in one pass.
@@ -199,12 +288,12 @@ EngCompiler::Result EngCompiler::cmdRunEmbedded(const std::string& sourcePath,
     return {true, "", "Ran: " + sourcePath, 0};
 }
 
-EngCompiler::Result EngCompiler::cmdBuild(const std::string& sourcePath, const std::string& outputPath) {
+EngCompiler::Result EngCompiler::cmdBuild(const std::string& sourcePath, const std::string& outputPath, bool dynamicTyping) {
     printf("cmdBuild: %s -> %s\n", sourcePath.c_str(), outputPath.c_str()); fflush(stderr);
-    return cmdRun(sourcePath, outputPath);
+    return cmdRun(sourcePath, outputPath, dynamicTyping);
 }
 
-EngCompiler::Result EngCompiler::cmdTest(const std::string& testDir) {
+EngCompiler::Result EngCompiler::cmdTest(const std::string& testDir, bool dynamicTyping) {
     namespace fs = std::filesystem;
     if (!fs::exists(testDir) || !fs::is_directory(testDir)) {
         return {false, "Test directory not found: " + testDir, "", 1};
@@ -225,7 +314,7 @@ EngCompiler::Result EngCompiler::cmdTest(const std::string& testDir) {
         std::string stem = fs::path(f).stem().string();
         std::string out = (fs::temp_directory_path() / ("engtest_" + stem)).string();
         std::cout << "---- " << f << " ----\n";
-        auto r = cmdRun(f, out);
+        auto r = cmdRun(f, out, dynamicTyping);
         // cmdRun already prints compile/run output; a zero exit code means pass.
         if (r.success) {
             ++passed;
@@ -265,13 +354,17 @@ EngCompiler::Result EngCompiler::cmdFmt(const std::string& sourcePath) {
     auto tokens = lexer.tokenize();
     Parser parser(tokens, diag);
     auto prog = parser.parse();
+
+    // M3: resolve imports so multi-file projects lint correctly
+    resolveImports(prog, sourcePath, diag);
+
     if (diag.hasErrors()) {
         diag.print();
         return {false, "Lint found errors", "", 1};
     }
 
     // Type checking pass
-    TypeChecker tc(diag);
+    TypeChecker tc(diag, dynamicTypingEnabled());
     tc.check(prog.topLevel);
     if (diag.hasErrors()) {
         diag.print();
@@ -294,6 +387,8 @@ EngCompiler::Result EngCompiler::cmdHelp() {
               << "  engc new <name> --target <t> [--board <b>]  Create embedded project\n"
               << "  engc run <file.ec> [out]  Compile and run\n"
               << "  engc build <file.ec> [out] Compile to binary\n"
+              << "  engc repl                 Start interactive REPL (v0.2.0-alpha)\n"
+              << "  --dynamic                 Enable dynamic typing (optional return types)\n"
               << "  engc build --target <t> [--board <b>]  Build for embedded target\n"
               << "  Targets: arduino, esp32, baremetal, kernel\n"
               << "  engc flash --board <b> [--port <p>]  Flash firmware\n"
@@ -318,7 +413,15 @@ EngCompiler::Result EngCompiler::cmdHelp() {
 EngCompiler::Result EngCompiler::run(const std::vector<std::string>& args) {
     printf("EngCompiler::run called with %zu args\n", args.size()); fflush(stderr);
     if (args.size() < 2) return cmdHelp();
-
+    
+    bool dynamicTyping = false;
+    
+    // Parse --dynamic flag anywhere in arguments
+    if (std::find(args.begin(), args.end(), "--dynamic") != args.end()) {
+        dynamicTyping = true;
+        g_dynamicTyping = true;
+    }
+    
     const std::string& cmd = args[1];
 
     if (cmd == "version" || cmd == "v") return cmdVersion();
@@ -332,24 +435,31 @@ EngCompiler::Result EngCompiler::run(const std::vector<std::string>& args) {
         return cmdNew(args[2]);
     } else if (cmd == "run" || cmd == "r") {
         if (args.size() < 3) return {false, "Usage: engc run <file.ec> [output]", "", 1};
+        // Collect positional args, skipping known flags (--dynamic)
+        std::vector<std::string> pos;
+        for (size_t i = 2; i < args.size(); ++i) {
+            if (args[i] == "--dynamic") continue;
+            pos.push_back(args[i]);
+        }
+        if (pos.empty()) return {false, "Usage: engc run <file.ec> [output]", "", 1};
         // Parse optional --target flag before the source file
-        int srcIdx = 2;
+        int srcIdx = 0;
         bool arduinoMode = false;
-        if (args[srcIdx] == "--target" && srcIdx + 1 < (int)args.size()) {
-            arduinoMode = (args[srcIdx + 1] == "arduino" || args[srcIdx + 1] == "esp32");
+        if (pos[srcIdx] == "--target" && srcIdx + 1 < (int)pos.size()) {
+            arduinoMode = (pos[srcIdx + 1] == "arduino" || pos[srcIdx + 1] == "esp32");
             srcIdx += 2; // skip past --target <board>
         }
         if (arduinoMode) {
-            std::string out = (srcIdx + 1 < (int)args.size()) ? args[srcIdx + 1] : std::string("main") + ".ino";
-            return cmdRunEmbedded(args[srcIdx], out, true);
+            std::string out = (srcIdx + 1 < (int)pos.size()) ? pos[srcIdx + 1] : std::string("main") + ".ino";
+            return cmdRunEmbedded(pos[srcIdx], out, true, dynamicTyping);
         }
         // Check for embedded build flag (--target means build-for-embedded, not just lint)
         bool hasTargetFlag = std::find(args.begin(), args.end(), "--target") != args.end();
         if (hasTargetFlag) {
             return cmdBuildEmbedded(std::vector<std::string>(args.begin() + 2, args.end()));
         }
-        std::string out = (srcIdx + 1 < (int)args.size()) ? args[srcIdx + 1] : std::string("main") + exeSuffix();
-        return cmdRun(args[srcIdx], out);
+        std::string out = (srcIdx + 1 < (int)pos.size()) ? pos[srcIdx + 1] : std::string("main") + exeSuffix();
+        return cmdRun(pos[srcIdx], out, dynamicTyping);
     } else if (cmd == "build" || cmd == "b") {
         // Check for embedded flags
         auto hasTarget = std::find(args.begin(), args.end(), "--target") != args.end();
@@ -358,7 +468,7 @@ EngCompiler::Result EngCompiler::run(const std::vector<std::string>& args) {
         }
         if (args.size() < 3) return {false, "Usage: engc build <file.ec> [output]", "", 1};
         std::string out = args.size() > 3 ? args[3] : std::string("main") + exeSuffix();
-        return cmdBuild(args[2], out);
+        return cmdBuild(args[2], out, dynamicTyping);
     } else if (cmd == "flash") {
         return cmdFlash(std::vector<std::string>(args.begin() + 2, args.end()));
     } else if (cmd == "monitor") {
@@ -380,7 +490,7 @@ EngCompiler::Result EngCompiler::run(const std::vector<std::string>& args) {
         return cmdPackageInit();
     } else if (cmd == "test" || cmd == "t") {
         std::string dir = args.size() > 2 ? args[2] : ".";
-        return cmdTest(dir);
+        return cmdTest(dir, dynamicTyping);
     } else if (cmd == "fmt") {
         if (args.size() < 3) return {false, "Usage: engc fmt <file.ec>", "", 1};
         return cmdFmt(args[2]);
@@ -394,6 +504,8 @@ EngCompiler::Result EngCompiler::run(const std::vector<std::string>& args) {
         return cmdHelp();
     } else if (cmd == "lsp" || cmd == "server") {
         return cmdLSP();
+    } else if (cmd == "repl") {
+        return cmdRepl();
     } else {
         return {false, "Unknown command: " + cmd, "", 1};
     }
@@ -488,6 +600,11 @@ EngCompiler::Result EngCompiler::cmdPackageInit() {
 EngCompiler::Result EngCompiler::cmdLSP() {
     eng::langserver::LanguageServer server;
     server.run();
+    return {true, "", "", 0};
+}
+
+EngCompiler::Result EngCompiler::cmdRepl() {
+    eng::runRepl();
     return {true, "", "", 0};
 }
 

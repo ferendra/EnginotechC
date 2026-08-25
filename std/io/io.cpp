@@ -14,6 +14,11 @@ std::string readLine() {
     return line;
 }
 
+// NEW: input() function - read a line from stdin (Python compatibility)
+std::string input() {
+    return readLine();
+}
+
 std::string readAll() {
     std::stringstream ss;
     ss << std::cin.rdbuf();
@@ -51,6 +56,15 @@ void printf(const char* format, ...) {
     va_start(args, format);
     vprintf(format, args);
     va_end(args);
+}
+
+// NEW: range() function - generate sequence 0 to n-1 (Python compatibility)
+std::vector<int> range(int n) {
+    std::vector<int> result;
+    for (int i = 0; i < n; i++) {
+        result.push_back(i);
+    }
+    return result;
 }
 
 bool fileExists(const std::string& path) {
