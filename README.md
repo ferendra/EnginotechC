@@ -2,10 +2,12 @@
 
 A modern, modular, industrial-grade programming language with C-like syntax.
 
-**Version:** 0.1.0 (M0 Bootstrap)
+**Version:** 0.4.0 (M0 Bootstrap)
 **Status:** Pre-release — Lexer, Parser, AST, Semantic Analysis, LLVM Codegen working
-**Language:** C++20 with LLVM
-**Target:** x86_64 (Windows, Linux, macOS)
+**Language:** C++20 with LLVM 14+
+**Build System:** CMake 3.16+
+**Build Scripts:** Shell (.sh), JavaScript (.js), Python (.py)
+**Target:** x86_64 (Windows, Linux, macOS), Web (JavaScript), Bare-metal
 
 ## Quick Start
 
