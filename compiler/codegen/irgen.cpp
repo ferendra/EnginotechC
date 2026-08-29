@@ -1209,6 +1209,10 @@ Val LLVMIRGenerator::emitExpr(const ExprPtr& expr) {
                       << " " << tv.ref << ", " << ty << " " << ev.ref << "\n";
             return Val{r, common, ""};
         }
+        case ExprKind::Try: {
+            auto* te = static_cast<TryExpr*>(expr.get());
+            return emitTry(te);
+        }
         default:
             error("Unsupported expression kind", expr->line, expr->col);
             return makeInt(0);
@@ -3322,6 +3326,30 @@ bool LLVMIRGenerator::compile(const Program& prog, const std::string& outputPath
         if (!std::getenv("EC_KEEP_IR")) fs::remove(irPath); // EC_KEEP_IR=1 keeps it
     }
     return ok;
+}
+
+Val LLVMIRGenerator::emitTry(const TryExpr* te) {
+    // `expr?` desugar: emit inner, check Result/Option tag, early return on Err/None
+    // For now, simple version: emit inner value and branch on tag == 1 (error/none)
+    Val inner = emitExpr(te->inner);
+    // Inner is Result/Option encoded as i32 tag (0=Ok/Some, 1=Err/None) in current enum codegen
+    // If tag == 1, propagate by returning from current function
+    // We need curRetTy_ to decide: if current function returns Result/Option, return inner as is
+    // Simplified: if inner tag != 0, return inner (early exit)
+    std::string isErr = newReg();
+    irStream_ << "  " << isErr << " = icmp ne i32 " << inner.ref << ", 0\n";
+    std::string okLabel = label("try.ok");
+    std::string errLabel = label("try.err");
+    irStream_ << "  br i1 " << isErr << ", label %" << errLabel << ", label %" << okLabel << "\n";
+    irStream_ << errLabel << ":\n";
+    // Early return: propagate error/none value
+    // Materialize to current return type if needed
+    Val toRet = materialize(inner, curRetTy_);
+    irStream_ << "  ret " << curRetTy_ << " " << toRet.ref << "\n";
+    irStream_ << okLabel << ":\n";
+    // Success path: extract payload (for now, inner value itself; full payload extraction needs enum payload support)
+    // Typechecker already set TryExpr type to T, so return inner as T (unwrap simulation)
+    return inner;
 }
 
 // ========================================================================

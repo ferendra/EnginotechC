@@ -1047,6 +1047,10 @@ ExprPtr Parser::parsePostfix(ExprPtr base) {
             auto idx = parseExpression();
             expect(TokenType::RBRACKET, "index access");
             base = std::make_shared<IndexExpr>(base, idx, t.line, t.col);
+        } else if (t.type == TokenType::QUESTION) {
+            // Error propagation `expr?` → TryExpr
+            pos_++;
+            base = std::make_shared<TryExpr>(base, t.line, t.col);
         } else {
             break;
         }

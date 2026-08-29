@@ -68,7 +68,8 @@ enum class ExprKind {
     VariableDecl, TypeCast, StringInterp, Tuple, StructLit, Range,
     Index, Conditional,
     Yield, Await,
-    PatternMatch, DimensionalType
+    PatternMatch, DimensionalType,
+    Try  // `expr?` error propagation
 };
 
 struct Expr {
@@ -188,6 +189,12 @@ struct IndexExpr : public Expr {
     IndexExpr(ExprPtr b, ExprPtr i, int ln, int cl)
         : Expr(ln, cl), base(std::move(b)), index(std::move(i)) {}
     ExprKind kind() const override { return ExprKind::Index; }
+};
+
+struct TryExpr : public Expr {
+    ExprPtr inner;
+    TryExpr(ExprPtr e, int ln, int cl) : Expr(ln, cl), inner(std::move(e)) {}
+    ExprKind kind() const override { return ExprKind::Try; }
 };
 
 // ---- STATEMENT NODES ----

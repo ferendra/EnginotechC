@@ -73,6 +73,7 @@ private:
     Val emitArrayLit(const ArrayLitExpr* arr);
     Val emitTypeCast(const TypeCastExpr* tc);
     Val emitStringInterp(const StringInterpExpr* si);
+    Val emitTry(const TryExpr* te);
 
     // statements
     void emitLet(const LetStmt* stmt);

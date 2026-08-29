@@ -427,6 +427,32 @@ void TypeChecker::typeCheckExpr(const ExprPtr& expr) {
             expr->type = std::make_shared<GenericType>("range", std::vector{range->start->type});
             break;
         }
+        case ExprKind::Try: {
+            auto* te = static_cast<TryExpr*>(expr.get());
+            typeCheckExpr(te->inner);
+            if (!te->inner->type) {
+                expr->type = std::make_shared<BasicType>("unknown");
+                break;
+            }
+            std::string innerName = te->inner->type->getName();
+            if (auto* gen = dynamic_cast<GenericType*>(te->inner->type.get())) {
+                if (gen->name == "Result" && gen->params.size() == 2) {
+                    expr->type = gen->params[0]; // T of Result<T,E>
+                    break;
+                }
+                if (gen->name == "Option" && gen->params.size() == 1) {
+                    expr->type = gen->params[0]; // T of Option<T>
+                    break;
+                }
+            }
+            if (innerName == "Result" || innerName == "Option") {
+                error("E3001", "`?` requires Result<T,E> or Option<T>", te->line, te->col);
+            } else {
+                error("E3001", "`?` can only be used on Result or Option, got " + innerName, te->line, te->col);
+            }
+            expr->type = std::make_shared<BasicType>("unknown");
+            break;
+        }
         default:
             expr->type = std::make_shared<BasicType>("unknown");
             break;
