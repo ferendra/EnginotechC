@@ -1,0 +1,37 @@
+# VSCode Extension Ignore
+# Files not to include in .vsix package
+
+# Source files
+*.ts
+*.js.map
+*.d.ts
+src/
+test/
+*.md
+!README.md
+
+# Build artifacts
+*.vsix
+dist/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Node modules
+node_modules/
+
+# Temporary
+*.tmp
+*.temp

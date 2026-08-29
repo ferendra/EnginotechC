@@ -1,8 +1,8 @@
 {
 	"name": "ec-language",
 	"displayName": "EnginotechC++ (EC)",
-	"description": "Syntax highlighting & diagnostics untuk bahasa EnginotechC++ (.ec)",
-	"version": "0.3.5",
+	"description": "Full IDE support untuk EnginotechC++ (.ec): syntax highlighting, diagnostics, completions, hover, go-to-definition",
+	"version": "0.5.0",
 	"publisher": "enginotech",
 	"icon": "icon.png",
 	"engines": {
@@ -45,6 +45,16 @@
 				"command": "ec.run",
 				"title": "EC: Run File",
 				"icon": "$(play)"
+			},
+			{
+				"command": "ec.build",
+				"title": "EC: Build Project",
+				"icon": "$(tools)"
+			},
+			{
+				"command": "ec.restartLsp",
+				"title": "EC: Restart Language Server",
+				"icon": "$(sync)"
 			}
 		],
 		"menus": {
@@ -54,12 +64,29 @@
 					"when": "resourceLangId == ec",
 					"group": "navigation"
 				}
+			],
+			"explorer/context": [
+				{
+					"command": "ec.build",
+					"when": "resourceLangId == ec",
+					"group": "build"
+				}
 			]
 		},
 		"keybindings": [
 			{
 				"command": "ec.run",
 				"key": "ctrl+f5",
+				"when": "resourceLangId == ec"
+			},
+			{
+				"command": "ec.build",
+				"key": "ctrl+shift+b",
+				"when": "resourceLangId == ec"
+			},
+			{
+				"command": "ec.restartLsp",
+				"key": "ctrl+shift+r",
 				"when": "resourceLangId == ec"
 			}
 		],
@@ -70,6 +97,21 @@
 					"type": "string",
 					"default": "engc",
 					"description": "Path ke binary engc (mis. /usr/local/bin/engc). Dipakai tombol ▶ Run File."
+				},
+				"ec.lintOnSave": {
+					"type": "boolean",
+					"default": true,
+					"description": "Jalankan lint/diagnostics saat save file"
+				},
+				"ec.completionEnabled": {
+					"type": "boolean",
+					"default": true,
+					"description": "Aktifkan auto-completion"
+				},
+				"ec.maxDiagnostics": {
+					"type": "number",
+					"default": 100,
+					"description": "Maksimal diagnostics per file"
 				}
 			}
 		}

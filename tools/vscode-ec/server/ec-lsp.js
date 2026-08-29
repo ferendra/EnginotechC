@@ -4,6 +4,9 @@
  * Fitur:
  *   - Diagnostics dari compiler (engc build)
  *   - Syntax checking (fallback jika engc tidak tersedia)
+ *   - Completions (basic)
+ *   - Hover info
+ *   - Go-to-definition
  */
 'use strict';
 const { spawn } = require('child_process');
@@ -11,15 +14,45 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 
+/* ==================== KEYWORDS & BUILTINS ==================== */
+
+const KEYWORDS = [
+  'fn', 'let', 'mut', 'const', 'if', 'else', 'elif', 'for', 'while', 'return',
+  'break', 'continue', 'match', 'struct', 'enum', 'impl', 'interface', 'import',
+  'pub', 'as', 'in', 'module', 'export', 'load', 'try', 'catch', 'throw',
+  'except', 'finally', 'test', 'assert', 'expect', 'requires', 'ensures',
+  'invariant', 'coroutine', 'yield', 'await', 'hot', 'reload', 'bytecode',
+  'vm', 'op', 'true', 'false', 'none', 'function', 'say', 'ask', 'set',
+  'repeat', 'give', 'print', 'output', 'input'
+];
+
+const TYPES = [
+  'int', 'int8', 'int16', 'int32', 'int64',
+  'uint', 'uint8', 'uint16', 'uint32', 'uint64',
+  'float32', 'float64', 'double', 'bool', 'char', 'string', 'byte', 'void',
+  'Option', 'Result'
+];
+
+const BUILTINS = [
+  { name: 'print', detail: 'print(s: string) -> void', kind: 'Function' },
+  { name: 'println', detail: 'println(s: string) -> void', kind: 'Function' },
+  { name: 'str', detail: 'str(x: any) -> string', kind: 'Function' },
+  { name: 'len', detail: 'len(s: string) -> int', kind: 'Function' },
+  { name: 'input', detail: 'input() -> string', kind: 'Function' },
+  { name: 'abs', detail: 'abs(x: int) -> int', kind: 'Function' },
+  { name: 'min', detail: 'min(a: int, b: int) -> int', kind: 'Function' },
+  { name: 'max', detail: 'max(a: int, b: int) -> int', kind: 'Function' },
+  { name: 'sqrt', detail: 'sqrt(x: float64) -> float64', kind: 'Function' },
+  { name: 'pow', detail: 'pow(x: float64, y: float64) -> float64', kind: 'Function' },
+];
+
 /* ==================== DIAGNOSTIC PARSER ==================== */
 
-// Parse compiler output to extract diagnostics
 function parseCompilerOutput(output, filePath) {
   const diagnostics = [];
   const lines = output.split('\n');
   
   for (const line of lines) {
-    // Match pattern: [error] (CODE) message or [error] file:line:col -> message
     const errorMatch = line.match(/\[error\]\s*\((E?\d+)\)\s*(.+)$/);
     if (errorMatch) {
       diagnostics.push({
@@ -31,7 +64,6 @@ function parseCompilerOutput(output, filePath) {
       continue;
     }
     
-    // Match pattern: file:line:col -> message
     const fileMatch = line.match(/^(.+?):(\d+):(\d+)\s*->\s*(.+)$/);
     if (fileMatch) {
       const lineNum = parseInt(fileMatch[2]) - 1;
@@ -48,7 +80,6 @@ function parseCompilerOutput(output, filePath) {
       continue;
     }
     
-    // Match pattern: line:col message (for notes/other)
     const noteMatch = line.match(/^(\d+):(\d+)\s+(.+)$/);
     if (noteMatch && !line.includes('===')) {
       const lineNum = parseInt(noteMatch[1]) - 1;
@@ -67,7 +98,6 @@ function parseCompilerOutput(output, filePath) {
 // Run engc compiler to get real diagnostics
 function runCompiler(fileContent, filePath) {
   return new Promise((resolve) => {
-    // Find engc binary
     const engcPaths = [
       path.join(os.homedir(), '.local', 'bin', 'engc'),
       '/usr/local/bin/engc',
@@ -85,11 +115,10 @@ function runCompiler(fileContent, filePath) {
     }
     
     if (!engcPath) {
-      resolve([]); // No compiler found, return empty
+      resolve([]); // No compiler found
       return;
     }
     
-    // Create temp file for compilation
     const tmpFile = path.join(os.tmpdir(), `ec_compile_${Date.now()}.ec`);
     fs.writeFileSync(tmpFile, fileContent);
     
@@ -100,11 +129,10 @@ function runCompiler(fileContent, filePath) {
     child.stderr.on('data', (data) => { stderr += data.toString(); });
     
     child.on('close', (code) => {
-      // Clean up temp file
       try { fs.unlinkSync(tmpFile); } catch (_) {}
       
       if (code === 0 || !stderr) {
-        resolve([]); // No errors
+        resolve([]);
       } else {
         const diagnostics = parseCompilerOutput(stderr, filePath);
         resolve(diagnostics);
@@ -112,12 +140,182 @@ function runCompiler(fileContent, filePath) {
     });
     
     child.on('error', () => {
-      resolve([]); // Spawn error, return empty
+      resolve([]);
     });
   });
 }
 
-// Fallback: basic syntax analysis
+/* ==================== COMPLETIONS ==================== */
+
+function getCompletions(text, position) {
+  const items = [];
+  const wordAtPos = getWordAtPosition(text, position);
+  
+  // Add keywords
+  for (const kw of KEYWORDS) {
+    if (kw.startsWith(wordAtPos)) {
+      items.push({
+        label: kw,
+        kind: 14, // Keyword
+        detail: 'keyword',
+        insertText: kw
+      });
+    }
+  }
+  
+  // Add types
+  for (const t of TYPES) {
+    if (t.startsWith(wordAtPos)) {
+      items.push({
+        label: t,
+        kind: 7, // Class/Type
+        detail: 'type',
+        insertText: t
+      });
+    }
+  }
+  
+  // Add builtins
+  for (const b of BUILTINS) {
+    if (b.name.startsWith(wordAtPos)) {
+      items.push({
+        label: b.name,
+        kind: 2, // Function
+        detail: b.detail,
+        documentation: b.detail,
+        insertText: b.name + (b.name === 'print' ? '(' : '')
+      });
+    }
+  }
+  
+  // Add user-defined functions from current file
+  const funcRegex = /^\s*(?:pub\s+)?fn\s+([A-Za-z_]\w*)/gm;
+  let match;
+  while ((match = funcRegex.exec(text))) {
+    const name = match[1];
+    if (name.startsWith(wordAtPos)) {
+      items.push({
+        label: name,
+        kind: 2, // Function
+        detail: 'fn ' + name,
+        insertText: name
+      });
+    }
+  }
+  
+  // Add structs
+  const structRegex = /^\s*struct\s+([A-Za-z_]\w*)/gm;
+  while ((match = structRegex.exec(text))) {
+    const name = match[1];
+    if (name.startsWith(wordAtPos)) {
+      items.push({
+        label: name,
+        kind: 7, // Class
+        detail: 'struct ' + name,
+        insertText: name
+      });
+    }
+  }
+  
+  return items;
+}
+
+function getWordAtPosition(text, position) {
+  const lines = text.split('\n');
+  const line = lines[position.line] || '';
+  let start = position.character;
+  while (start > 0 && /[\w]/.test(line[start - 1])) start--;
+  return line.slice(start, position.character);
+}
+
+/* ==================== HOVER ==================== */
+
+function getHover(text, position) {
+  const word = getWordAtPosition(text, position);
+  
+  // Check keywords
+  if (KEYWORDS.includes(word)) {
+    return { contents: { kind: 'markdown', value: `**Keyword:** \`${word}\`` } };
+  }
+  
+  // Check types
+  if (TYPES.includes(word)) {
+    return { contents: { kind: 'markdown', value: `**Type:** \`${word}\`` } };
+  }
+  
+  // Check builtins
+  const builtin = BUILTINS.find(b => b.name === word);
+  if (builtin) {
+    return { contents: { kind: 'markdown', value: `**Function:** \`${builtin.detail}\`` } };
+  }
+  
+  // Check user functions
+  const funcRegex = /^\s*(?:pub\s+)?fn\s+([A-Za-z_]\w*)\s*\(([^)]*)\)\s*(?:->\s*([A-Za-z_]\w*))?/gm;
+  let match;
+  while ((match = funcRegex.exec(text))) {
+    if (match[1] === word) {
+      return { 
+        contents: { 
+          kind: 'markdown', 
+          value: `**Function:** \`fn ${match[1]}(${match[2] || ''})${match[3] ? ' -> ' + match[3] : ''}\`` 
+        } 
+      };
+    }
+  }
+  
+  // Check structs
+  const structRegex = /^\s*struct\s+([A-Za-z_]\w*)/gm;
+  while ((match = structRegex.exec(text))) {
+    if (match[1] === word) {
+      return { contents: { kind: 'markdown', value: `**Struct:** \`struct ${match[1]}\`` } };
+    }
+  }
+  
+  return null;
+}
+
+/* ==================== GO-TO-DEFINITION ==================== */
+
+function getDefinition(text, position) {
+  const word = getWordAtPosition(text, position);
+  const lines = text.split('\n');
+  
+  // Search for function definition
+  const funcRegex = /^\s*(?:pub\s+)?fn\s+([A-Za-z_]\w*)/gm;
+  let match;
+  while ((match = funcRegex.exec(text))) {
+    if (match[1] === word) {
+      const lineNum = text.slice(0, match.index).split('\n').length - 1;
+      return [{
+        uri: 'file://' + path.resolve('.'), // placeholder, will be replaced by client
+        range: {
+          start: { line: lineNum, character: match.index - (lines[lineNum] ? lines[lineNum].indexOf('fn') : 0) },
+          end: { line: lineNum, character: match.index + match[0].length }
+        }
+      }];
+    }
+  }
+  
+  // Search for struct definition
+  const structRegex = /^\s*struct\s+([A-Za-z_]\w*)/gm;
+  while ((match = structRegex.exec(text))) {
+    if (match[1] === word) {
+      const lineNum = text.slice(0, match.index).split('\n').length - 1;
+      return [{
+        uri: 'file://' + path.resolve('.'),
+        range: {
+          start: { line: lineNum, character: match.index - (lines[lineNum] ? lines[lineNum].indexOf('struct') : 0) },
+          end: { line: lineNum, character: match.index + match[0].length }
+        }
+      }];
+    }
+  }
+  
+  return [];
+}
+
+/* ==================== SYNTAX ANALYSIS ==================== */
+
 function analyzeSyntax(src) {
   const diags = [];
   const line = (i) => src.slice(0, i).split('\n').length - 1;
@@ -241,7 +439,12 @@ function handleMessage(msg) {
   const { id, method, params } = msg;
   switch (method) {
     case 'initialize':
-      reply(id, { capabilities: { textDocumentSync: 1 /* full */ } });
+      reply(id, { capabilities: { 
+        textDocumentSync: 1, // full
+        completionProvider: { triggerCharacters: ['.', ':', '<', '('] },
+        hoverProvider: true,
+        definitionProvider: true
+      } });
       break;
     case 'initialized': break;
     case 'shutdown': reply(id, null); break;
@@ -257,6 +460,33 @@ function handleMessage(msg) {
       break;
     case 'textDocument/didClose':
       docs.delete(params.textDocument.uri);
+      break;
+    case 'textDocument/completion':
+      if (params.textDocument && docs.has(params.textDocument.uri)) {
+        const text = docs.get(params.textDocument.uri).text;
+        const items = getCompletions(text, params.position);
+        reply(id, { items, isIncomplete: false });
+      } else {
+        reply(id, { items: [], isIncomplete: false });
+      }
+      break;
+    case 'textDocument/hover':
+      if (params.textDocument && docs.has(params.textDocument.uri)) {
+        const text = docs.get(params.textDocument.uri).text;
+        const hover = getHover(text, params.position);
+        reply(id, hover);
+      } else {
+        reply(id, null);
+      }
+      break;
+    case 'textDocument/definition':
+      if (params.textDocument && docs.has(params.textDocument.uri)) {
+        const text = docs.get(params.textDocument.uri).text;
+        const defs = getDefinition(text, params.position);
+        reply(id, defs);
+      } else {
+        reply(id, []);
+      }
       break;
     case '$/cancelRequest': break;
     default:
