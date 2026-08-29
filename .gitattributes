@@ -1,0 +1,16 @@
+# GitHub Linguist configuration
+# Treat .ec files as C++ for language statistics
+*.ec linguist-language=C++
+
+# Or if you want them as a separate language but not counted in stats:
+# *.ec linguist-vendored
+
+# Ignore build artifacts from language stats
+*.o linguist-vendored
+*.obj linguist-vendored
+*.ll linguist-vendored
+*.pdb linguist-vendored
+*.exe linguist-vendored
+
+# Documentation
+*.md linguist-documentation
