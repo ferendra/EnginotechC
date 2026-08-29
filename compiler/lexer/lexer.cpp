@@ -265,17 +265,28 @@ std::vector<Token> Lexer::tokenize() {
         if (isAlpha(c) || c == '_') {
             tokens_.push_back(tokenizeIdentifier());
         } else if (isDigit(c)) {
-            if (c == '0' && pos_ + 1 < source_.size() && source_[pos_ + 1] == 'x') {
-                // hex — tokenize as identifier-like or error
-                diagnostics.push_back({line_, col_, "Hex literals not yet supported", Diag::Level::Error});
+            if (c == '0' && pos_ + 1 < source_.size() && (source_[pos_ + 1] == 'x' || source_[pos_ + 1] == 'X')) {
                 advanceChar(); advanceChar();
-                while (pos_ < source_.size() && (isDigit(source_[pos_]) || (source_[pos_] >= 'a' && source_[pos_] <= 'f'))) advanceChar();
-                tokens_.emplace_back(TokenType::UNKNOWN, source_.substr(start, pos_ - start), line_, col_, start);
-            } else if (c == '0' && pos_ + 1 < source_.size() && source_[pos_ + 1] == 'b') {
-                diagnostics.push_back({line_, col_, "Binary literals not yet supported", Diag::Level::Error});
+                size_t hexStart = pos_;
+                while (pos_ < source_.size() && (isDigit(source_[pos_]) || (source_[pos_] >= 'a' && source_[pos_] <= 'f') || (source_[pos_] >= 'A' && source_[pos_] <= 'F'))) advanceChar();
+                std::string hex = source_.substr(hexStart, pos_ - hexStart);
+                if (hex.empty()) {
+                    diagnostics.push_back({line_, col_, "Invalid hex literal", Diag::Level::Error});
+                    tokens_.emplace_back(TokenType::UNKNOWN, "0x", line_, col_, start);
+                } else {
+                    tokens_.emplace_back(TokenType::INT_LITERAL, "0x" + hex, line_, col_, start);
+                }
+            } else if (c == '0' && pos_ + 1 < source_.size() && (source_[pos_ + 1] == 'b' || source_[pos_ + 1] == 'B')) {
                 advanceChar(); advanceChar();
+                size_t binStart = pos_;
                 while (pos_ < source_.size() && (source_[pos_] == '0' || source_[pos_] == '1')) advanceChar();
-                tokens_.emplace_back(TokenType::UNKNOWN, source_.substr(start, pos_ - start), line_, col_, start);
+                std::string bin = source_.substr(binStart, pos_ - binStart);
+                if (bin.empty()) {
+                    diagnostics.push_back({line_, col_, "Invalid binary literal", Diag::Level::Error});
+                    tokens_.emplace_back(TokenType::UNKNOWN, "0b", line_, col_, start);
+                } else {
+                    tokens_.emplace_back(TokenType::INT_LITERAL, "0b" + bin, line_, col_, start);
+                }
             } else {
                 // check for float
                 size_t save = pos_;
