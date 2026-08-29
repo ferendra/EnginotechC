@@ -1,0 +1,44 @@
+# EnginotechC++ Build Configuration
+# Copy to build.config and customize
+
+# Compiler: clang++, g++, zig c++, or specific version
+CXX="clang++"
+
+# Compiler flags (added to defaults based on build type)
+# Debug: -g -O0 -Wall -Wextra
+# Release: -O3 -DNDEBUG -march=native
+CXXFLAGS="-pipe"
+
+# Linker flags
+LDFLAGS=""
+
+# Modules to build (space-separated)
+# Available: compiler std runtime build-system formatter linter langserver packages
+MODULES="compiler std runtime build-system formatter linter langserver packages"
+
+# Target architecture
+TARGET_ARCH="x86_64"
+
+# Build type: Debug, Release, RelWithDebInfo
+BUILD_TYPE="Release"
+
+# Parallel jobs (0 = auto-detect)
+JOBS=0
+
+# Output directory
+OUT_DIR=".build"
+
+# Install prefix
+INSTALL_PREFIX="/usr/local"
+
+# Platform-specific overrides
+# Uncomment and customize for your platform:
+# if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" ]]; then
+#     LDFLAGS="-static"
+#     CXXFLAGS="-D_WIN32_WINNT=0x0A00"
+# fi
+
+# Cross-compilation example:
+# CXX="x86_64-w64-mingw32-g++"
+# TARGET_ARCH="x86_64"
+# LDFLAGS="-static -lws2_32"
