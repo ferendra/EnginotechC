@@ -542,6 +542,7 @@ void TypeChecker::checkStmt(const StmtPtr& stmt) {
             typeCheckExpr(match->scrutinee);
             for (auto& arm : match->arms) {
                 if (arm.pattern) typeCheckExpr(arm.pattern);
+                if (arm.guard) typeCheckExpr(arm.guard);
                 if (arm.body) checkStmt(arm.body);
             }
             break;

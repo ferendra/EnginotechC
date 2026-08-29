@@ -913,7 +913,12 @@ StmtPtr Parser::parseMatchStmt() {
     std::vector<MatchArm> arms;
     while (current().type != TokenType::RBRACE && current().type != TokenType::TOKEN_EOF) {
         ExprPtr pat = parseExpression();
-        // optional guard: 'if expr'
+        // optional guard: `if cond` before `=>`
+        ExprPtr guard = nullptr;
+        if (current().type == TokenType::IF) {
+            pos_++;
+            guard = parseExpression();
+        }
         if (current().type == TokenType::EQUAL && peekNext().type == TokenType::GT) {
             pos_ += 2; // skip =>
         } else if (current().type == TokenType::DOUBLE_ARROW) {
@@ -927,7 +932,7 @@ StmtPtr Parser::parseMatchStmt() {
         } else {
             body = std::make_shared<ExprStmt>(parseExpression(), current().line, current().col);
         }
-        arms.push_back({pat, body});
+        arms.push_back({pat, guard, body});
         if (current().type == TokenType::COMMA) pos_++;
     }
     expect(TokenType::RBRACE, "match body");

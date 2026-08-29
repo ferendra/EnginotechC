@@ -579,8 +579,10 @@ struct Program {
 // ---- MATCH EXPRESSION ---- 
 struct MatchArm { 
     ExprPtr pattern; 
+    ExprPtr guard; // optional `if` guard: `Some(x) if x > 0 => ...`
     StmtPtr body; 
-    MatchArm(ExprPtr p, StmtPtr b) : pattern(std::move(p)), body(std::move(b)) {} 
+    MatchArm(ExprPtr p, ExprPtr g, StmtPtr b) : pattern(std::move(p)), guard(std::move(g)), body(std::move(b)) {} 
+    MatchArm(ExprPtr p, StmtPtr b) : pattern(std::move(p)), guard(nullptr), body(std::move(b)) {} 
 }; 
 struct MatchExpr : public Stmt { 
     ExprPtr scrutinee; 
