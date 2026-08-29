@@ -54,6 +54,13 @@ struct FnType : public TypeNode {
     std::string getName() const override { return "fn"; }
 };
 
+struct TypeParam : public TypeNode {
+    std::string name;
+    std::vector<TypePtr> bounds;  // Trait bounds: T: Clone + Send
+    TypeParam(const std::string& n) : name(n) {}
+    std::string getName() const override { return name; }
+};
+
 // ---- EXPRESSION NODES ----
 enum class ExprKind {
     Literal, Ident, BinaryOp, UnaryOp, Call, FieldAccess,
@@ -314,6 +321,7 @@ struct FunctionDecl : public Stmt {
     std::vector<std::pair<std::string, TypePtr>> params;
     std::vector<StmtPtr> body;
     bool isAsync = false;
+    std::vector<TypePtr> typeParams;  // Generic type parameters: <T, U>
     FunctionDecl(const std::string& n, TypePtr ret,
                  std::vector<std::pair<std::string, TypePtr>> p,
                  std::vector<StmtPtr> b, int ln, int cl)
@@ -325,7 +333,8 @@ struct FunctionDecl : public Stmt {
 struct StructDecl : public Stmt {
     std::string name;
     std::vector<std::pair<std::string, TypePtr>> fields;
-    std::vector<StmtPtr> methods;  // Methods/functions inside struct
+    std::vector<StmtPtr> methods;
+    std::vector<TypePtr> typeParams;  // Generic type parameters: <T, U>
     StructDecl(const std::string& n, std::vector<std::pair<std::string, TypePtr>> f, int ln, int cl)
         : Stmt(ln, cl), name(n), fields(std::move(f)) {}
     StructDecl(const std::string& n, std::vector<std::pair<std::string, TypePtr>> f, std::vector<StmtPtr> m, int ln, int cl)
@@ -336,6 +345,7 @@ struct StructDecl : public Stmt {
 struct EnumDecl : public Stmt {
     std::string name;
     std::vector<std::pair<std::string, std::vector<TypePtr>>> variants;
+    std::vector<TypePtr> typeParams;  // Generic type parameters: <T, U>
     EnumDecl(const std::string& n, std::vector<std::pair<std::string, std::vector<TypePtr>>> v, int ln, int cl)
         : Stmt(ln, cl), name(n), variants(std::move(v)) {}
     StmtKind kind() const override { return StmtKind::EnumDecl; }
@@ -344,6 +354,7 @@ struct EnumDecl : public Stmt {
 struct ImplDecl : public Stmt {
     std::string structName;
     std::vector<StmtPtr> methods;
+    std::vector<TypePtr> typeParams;  // Generic type parameters: <T, U>
     ImplDecl(const std::string& s, std::vector<StmtPtr> m, int ln = 0, int cl = 0)
         : Stmt(ln, cl), structName(s), methods(std::move(m)) {}
     StmtKind kind() const override { return StmtKind::Impl; }

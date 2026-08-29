@@ -257,6 +257,24 @@ StmtPtr Parser::tryParseAssignment() {
     return nullptr;
 }
 
+std::vector<TypePtr> Parser::parseTypeParams() {
+    std::vector<TypePtr> params;
+    if (current().type != TokenType::LT) return params;
+    pos_++; // skip <
+    while (current().type != TokenType::GT && current().type != TokenType::TOKEN_EOF) {
+        if (current().type == TokenType::IDENT) {
+            std::string name = parseIdentifier();
+            params.push_back(std::make_shared<TypeParam>(name));
+        } else {
+            errorAt(current(), "Expected type parameter name");
+            pos_++;
+        }
+        if (current().type == TokenType::COMMA) pos_++;
+    }
+    if (current().type == TokenType::GT) pos_++; // skip >
+    return params;
+}
+
 StmtPtr Parser::parseFunctionDecl() {
     Token fnTok = current();
     // Human-friendly alias: `function` is accepted wherever `fn` is expected
@@ -267,6 +285,7 @@ StmtPtr Parser::parseFunctionDecl() {
         expect(TokenType::FN, "function declaration");
     }
     std::string name = parseIdentifier();
+    std::vector<TypePtr> typeParams = parseTypeParams();
     bool isMain = (name == "main");
     if (isMain) currentIsMain_ = true;
 
@@ -300,13 +319,16 @@ StmtPtr Parser::parseFunctionDecl() {
     auto body = parseBlock();
 
     if (isMain) currentIsMain_ = false;
-    return std::make_shared<FunctionDecl>(name, retType, params, body, fnTok.line, fnTok.col);
+    auto fn = std::make_shared<FunctionDecl>(name, retType, params, body, fnTok.line, fnTok.col);
+    fn->typeParams = std::move(typeParams);
+    return fn;
 }
 
 StmtPtr Parser::parseStructDecl() {
     Token stTok = current();
     expect(TokenType::STRUCT, "struct declaration");
     std::string name = parseIdentifier();
+    std::vector<TypePtr> typeParams = parseTypeParams();
     if (!expect(TokenType::LBRACE, "struct body")) return nullptr;
 
     std::vector<std::pair<std::string, TypePtr>> fields;
@@ -342,13 +364,16 @@ StmtPtr Parser::parseStructDecl() {
     }
     expect(TokenType::RBRACE, "struct body");
 
-    return std::make_shared<StructDecl>(name, fields, methods, stTok.line, stTok.col);
+    auto st = std::make_shared<StructDecl>(name, fields, methods, stTok.line, stTok.col);
+    st->typeParams = std::move(typeParams);
+    return st;
 }
 
 StmtPtr Parser::parseEnumDecl() {
     Token enTok = current();
     expect(TokenType::ENUM, "enum declaration");
     std::string name = parseIdentifier();
+    std::vector<TypePtr> typeParams = parseTypeParams();
     if (!expect(TokenType::LBRACE, "enum body")) return nullptr;
 
     std::vector<std::pair<std::string, std::vector<TypePtr>>> variants;
@@ -373,13 +398,17 @@ StmtPtr Parser::parseEnumDecl() {
         }
     }
     expect(TokenType::RBRACE, "enum body");
-    return std::make_shared<EnumDecl>(name, variants, enTok.line, enTok.col);
+
+    auto en = std::make_shared<EnumDecl>(name, variants, enTok.line, enTok.col);
+    en->typeParams = std::move(typeParams);
+    return en;
 }
 
 StmtPtr Parser::parseImplBlock() {
     Token imTok = current();
     expect(TokenType::IMPL, "impl block");
     std::string structName = parseIdentifier();
+    std::vector<TypePtr> typeParams = parseTypeParams();
     if (!expect(TokenType::LBRACE, "impl body")) return nullptr;
 
     std::vector<StmtPtr> methods;
@@ -392,7 +421,10 @@ StmtPtr Parser::parseImplBlock() {
         }
     }
     expect(TokenType::RBRACE, "impl body");
-    return std::make_shared<ImplDecl>(structName, methods, imTok.line, imTok.col);
+
+    auto im = std::make_shared<ImplDecl>(structName, methods, imTok.line, imTok.col);
+    im->typeParams = std::move(typeParams);
+    return im;
 }
 
 StmtPtr Parser::parseInterfaceDecl() {

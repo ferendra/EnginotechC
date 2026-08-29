@@ -143,8 +143,22 @@ void SemanticAnalyzer::checkReturn(ReturnStmt* stmt, TypePtr expected) {
 }
 
 void SemanticAnalyzer::checkStruct(StructDecl* st) {
-    // TODO: validate fields
-    (void)st;
+    if (!st) return;
+    // Validate struct fields
+    std::unordered_set<std::string> seenFields;
+    for (const auto& [fieldName, fieldType] : st->fields) {
+        if (seenFields.count(fieldName)) {
+            diag_.error("E2007", "Duplicate field '" + fieldName + "' in struct '" + st->name + "'", st->line, st->col);
+        }
+        seenFields.insert(fieldName);
+        if (!fieldType) {
+            diag_.error("E2008", "Field '" + fieldName + "' has no type", st->line, st->col);
+        }
+    }
+    // Validate methods
+    for (const auto& method : st->methods) {
+        analyzeStmt(method);
+    }
 }
 
 void SemanticAnalyzer::checkEnum(EnumDecl* en) {

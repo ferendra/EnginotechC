@@ -3,27 +3,29 @@
 
 import esp32;
 import embedded.gpio;
-import embedded.uart;
 import embedded.system;
+import embedded.uart;
 
 fn setup() {
-    let led = gpio.output(2);
-    led.high();
+    pinMode(2, PinMode.OUTPUT);
+    digitalWrite(2, PinState.HIGH);
     delay(200);
-    led.low();
+    digitalWrite(2, PinState.LOW);
 
-    uart.begin(115200);
-    uart.write("ESP32 GPIO+UART test\n");
-    uart.write("Chip: " + system.getChipModel() + "\n");
-    uart.write("Freq: " + str(system.cpuFrequencyHz()) + " Hz\n");
+    uart_open_baud(0, 115200);
+    uart_write(0, "ESP32 GPIO+UART test\n");
+    uart_write(0, "Chip: " + get_chip_id() + "\n");
+    uart_write(0, "Freq: " + str(get_cpu_frequency()) + " MHz\n");
 }
 
 fn loop() {
-    uart.write("tick " + str(system.millis()) + "ms\n");
+    uart_write(0, "tick " + str(millis()) + "ms\n");
     delay(1000);
 }
 
 fn main() {
     setup();
-    loop();
+    while (true) {
+        loop();
+    }
 }

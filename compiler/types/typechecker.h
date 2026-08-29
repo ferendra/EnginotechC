@@ -25,7 +25,7 @@ private:
     bool isFloatType(const TypePtr& type) const;
     TypePtr inferTypeFromLiteral(const LiteralExpr* lit) const;
     TypePtr getArithmeticResultType(const TokenType& op, const TypePtr& left, const TypePtr& right) const;
-    std::string normalizeType(const std::string& name) const;  // STRICT TYPING
+    std::string normalizeType(const std::string& name) const;
     void error(const std::string& code, const std::string& message, int line, int col);
     void typeCheckLet(const LetStmt* stmt);
     void typeCheckMut(const MutStmt* stmt);
@@ -41,6 +41,13 @@ private:
     void checkEnumDecls(const std::vector<StmtPtr>& items);
     void checkStructDecls(const std::vector<StmtPtr>& items);
 
+    // Generics support
+    TypePtr substituteTypeParams(const TypePtr& type, const std::unordered_map<std::string, TypePtr>& typeArgs);
+    void pushTypeParams(const std::vector<TypePtr>& typeParams);
+    void popTypeParams();
+    void inferTypeParams(const TypePtr& expected, const TypePtr& actual, std::unordered_map<std::string, TypePtr>& typeArgs);
+    std::vector<std::unordered_map<std::string, TypePtr>> typeParamScopes_;
+
     DiagnosticEngine& diag_;
     bool dynamicTyping_;
     std::unordered_map<std::string, TypePtr> symbols_;
@@ -50,9 +57,9 @@ private:
     std::vector<const EnumDecl*> enumDecls_;
     std::vector<const StructDecl*> structDecls_;
     // Warning tracking
-    std::unordered_map<std::string, int> varUses_;      // count of uses per var
-    std::unordered_set<std::string> warnedUnused_;      // avoid duplicate warnings
-    std::unordered_set<std::string> warnedShadow_;      // avoid duplicate warnings
+    std::unordered_map<std::string, int> varUses_;
+    std::unordered_set<std::string> warnedUnused_;
+    std::unordered_set<std::string> warnedShadow_;
 };
 
 } // namespace eng

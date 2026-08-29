@@ -813,6 +813,10 @@ void LLVMIRGenerator::declareTopLevel(const Program& prog) {
             case StmtKind::StructDecl: {
                 auto* st = static_cast<StructDecl*>(item.get());
                 registerStruct(st);
+                // Track generic structs
+                if (!st->typeParams.empty()) {
+                    genericStructs_[st->name] = st;
+                }
                 // M2: methods declared inside struct body act like an inline impl
                 if (!st->methods.empty()) {
                     curSelfType_ = st->name;
@@ -824,14 +828,24 @@ void LLVMIRGenerator::declareTopLevel(const Program& prog) {
                 }
                 break;
             }
-            case StmtKind::EnumDecl:
-                registerEnum(static_cast<EnumDecl*>(item.get()));
+            case StmtKind::EnumDecl: {
+                auto* en = static_cast<EnumDecl*>(item.get());
+                registerEnum(en);
+                // Track generic enums
+                if (!en->typeParams.empty()) {
+                    genericEnums_[en->name] = en;
+                }
                 break;
+            }
             case StmtKind::FunctionDecl:
                 registerFunction(static_cast<FunctionDecl*>(item.get()));
                 break;
             case StmtKind::Impl: {
                 auto* im = static_cast<ImplDecl*>(item.get());
+                // Track generic impls
+                if (!im->typeParams.empty()) {
+                    genericImpls_[im->structName] = im;
+                }
                 curSelfType_ = im->structName;
                 for (const auto& m : im->methods) {
                     if (m && m->kind() == StmtKind::FunctionDecl)
@@ -866,6 +880,13 @@ void LLVMIRGenerator::registerEnum(const EnumDecl* en) {
 
 void LLVMIRGenerator::registerFunction(const FunctionDecl* fn) {
     const bool method = !curSelfType_.empty();
+    
+    // Track generic functions
+    if (!fn->typeParams.empty()) {
+        const std::string key = method ? curSelfType_ + "." + fn->name : fn->name;
+        genericFunctions_[key] = fn;
+    }
+    
     FnSig sig;
     sig.ret = getTypeStr(fn->returnType);
     for (const auto& [pname, ptype] : fn->params) {
@@ -1769,6 +1790,77 @@ Val LLVMIRGenerator::emitCall(const CallExpr* call) {
     // ---- user functions ----
     auto fit = functions_.find(fnName);
     if (fit == functions_.end()) {
+        // Check if it's a generic function that needs monomorphization
+        auto gfit = genericFunctions_.find(fnName);
+        if (gfit != genericFunctions_.end()) {
+            // Generic function - need to infer type args from call arguments
+            const FunctionDecl* genericDecl = gfit->second;
+            std::vector<TypePtr> typeArgs;
+            
+            // Infer type arguments from call arguments
+            for (size_t i = 0; i < call->args.size() && i < genericDecl->params.size(); ++i) {
+                Val argVal = emitExpr(call->args[i]);
+                // Create a basic type from the argument's type
+                if (argVal.type != VT::Unknown) {
+                    std::string typeName;
+                    switch (argVal.type) {
+                        case VT::Int: typeName = "int"; break;
+                        case VT::Float: typeName = "float64"; break;
+                        case VT::Bool: typeName = "bool"; break;
+                        case VT::Str: typeName = "string"; break;
+                        case VT::StructPtr: typeName = argVal.typeName; break;
+                        case VT::ArrayPtr: typeName = "array"; break;
+                        default: typeName = "int";
+                    }
+                    typeArgs.push_back(std::make_shared<BasicType>(typeName));
+                } else {
+                    // Fallback to int
+                    typeArgs.push_back(std::make_shared<BasicType>("int"));
+                }
+            }
+            
+            // Fill remaining type params with defaults or first arg type
+            while (typeArgs.size() < genericDecl->typeParams.size()) {
+                if (!typeArgs.empty()) {
+                    typeArgs.push_back(typeArgs[0]);
+                } else {
+                    typeArgs.push_back(std::make_shared<BasicType>("int"));
+                }
+            }
+            
+            // Get or create monomorphized version
+            const FunctionDecl* monoDecl = getOrCreateMonomorph(genericDecl, typeArgs);
+            
+            // Emit call to monomorphized function
+            auto msit = sigs_.find(monoDecl->name);
+            FnSig msig = msit != sigs_.end() ? msit->second : FnSig{};
+            if (msig.params.empty()) {
+                for (const auto& [pn, pt] : monoDecl->params) {
+                    (void)pn;
+                    msig.params.push_back(getTypeStr(pt));
+                }
+                msig.ret = getTypeStr(monoDecl->returnType);
+            }
+            
+            std::string args;
+            for (size_t i = 0; i < call->args.size(); ++i) {
+                Val v = emitExpr(call->args[i]);
+                std::string ty = i < msig.params.size() ? msig.params[i]
+                                                        : vtLLVM(v.type);
+                v = materialize(v, ty);
+                if (i) args += ", ";
+                args += ty + " " + v.ref;
+            }
+            
+            std::string res = newReg();
+            std::string retTy = msig.ret.empty() ? "i32" : msig.ret;
+            irStream_ << "  " << res << " = call " << retTy << " @"
+                      << sanitize(monoDecl->name) << "(" << args << ")\n";
+            if (retTy == "void") return Val{res, VT::Void, ""};
+            VT rt = monoDecl->returnType ? vtOfType(monoDecl->returnType) : VT::Int;
+            std::string rtn = monoDecl->returnType ? monoDecl->returnType->getName() : "";
+            return Val{res, rt, rtn};
+        }
         error("Unknown function: " + fnName, call->line, call->col);
         return makeInt(0);
     }
@@ -3230,6 +3322,115 @@ bool LLVMIRGenerator::compile(const Program& prog, const std::string& outputPath
         if (!std::getenv("EC_KEEP_IR")) fs::remove(irPath); // EC_KEEP_IR=1 keeps it
     }
     return ok;
+}
+
+// ========================================================================
+// Generics / Monomorphization Implementation
+// ========================================================================
+
+std::string LLVMIRGenerator::mangleMonoName(const std::string& baseName, const std::vector<TypePtr>& typeArgs) {
+    if (typeArgs.empty()) return baseName;
+    std::string result = baseName + "$";
+    for (size_t i = 0; i < typeArgs.size(); ++i) {
+        if (i > 0) result += "_";
+        std::string typeName = typeArgs[i]->getName();
+        // Sanitize for LLVM symbol
+        for (char& c : typeName) {
+            if (!std::isalnum(static_cast<unsigned char>(c))) c = '_';
+        }
+        result += typeName;
+    }
+    return result;
+}
+
+TypePtr LLVMIRGenerator::substituteTypeInType(const TypePtr& type, const std::vector<TypePtr>& typeParams, const std::vector<TypePtr>& typeArgs) {
+    if (!type) return type;
+    
+    if (auto* typeParam = dynamic_cast<TypeParam*>(type.get())) {
+        // Find matching type param
+        for (size_t i = 0; i < typeParams.size(); ++i) {
+            if (auto* tp = dynamic_cast<TypeParam*>(typeParams[i].get())) {
+                if (tp->name == typeParam->name && i < typeArgs.size()) {
+                    return typeArgs[i];
+                }
+            }
+        }
+        return type;
+    }
+    
+    if (auto* genericType = dynamic_cast<GenericType*>(type.get())) {
+        std::vector<TypePtr> newParams;
+        for (const auto& param : genericType->params) {
+            newParams.push_back(substituteTypeInType(param, typeParams, typeArgs));
+        }
+        return std::make_shared<GenericType>(genericType->name, newParams);
+    }
+    
+    if (auto* arrayType = dynamic_cast<ArrayType*>(type.get())) {
+        return std::make_shared<ArrayType>(
+            substituteTypeInType(arrayType->elem, typeParams, typeArgs), 
+            arrayType->size
+        );
+    }
+    
+    if (auto* fnType = dynamic_cast<FnType*>(type.get())) {
+        TypePtr newRet = substituteTypeInType(fnType->ret, typeParams, typeArgs);
+        std::vector<std::pair<std::string, TypePtr>> newParams;
+        for (const auto& [name, paramType] : fnType->params) {
+            newParams.emplace_back(name, substituteTypeInType(paramType, typeParams, typeArgs));
+        }
+        return std::make_shared<FnType>(newRet, newParams);
+    }
+    
+    return type;
+}
+
+const FunctionDecl* LLVMIRGenerator::getOrCreateMonomorph(const FunctionDecl* original, const std::vector<TypePtr>& typeArgs) {
+    std::string mangled = mangleMonoName(original->name, typeArgs);
+    
+    auto it = monoFunctions_.find(mangled);
+    if (it != monoFunctions_.end()) {
+        return it->second.specialized.get();
+    }
+    
+    // Create specialized version
+    auto specialized = specializeFunction(original, typeArgs);
+    monoFunctions_[mangled] = {original, typeArgs, specialized};
+    
+    // Register the specialized function
+    functions_[mangled] = specialized.get();
+    
+    return specialized.get();
+}
+
+std::shared_ptr<FunctionDecl> LLVMIRGenerator::specializeFunction(const FunctionDecl* original, const std::vector<TypePtr>& typeArgs) {
+    std::string mangled = mangleMonoName(original->name, typeArgs);
+    
+    // Substitute type parameters in return type
+    TypePtr newRetType = substituteTypeInType(original->returnType, original->typeParams, typeArgs);
+    
+    // Substitute type parameters in params
+    std::vector<std::pair<std::string, TypePtr>> newParams;
+    for (const auto& [name, type] : original->params) {
+        newParams.emplace_back(name, substituteTypeInType(type, original->typeParams, typeArgs));
+    }
+    
+    // Deep clone and substitute body - for now, share body (will need full AST clone for production)
+    auto specialized = std::make_shared<FunctionDecl>(
+        mangled, newRetType, newParams, original->body, original->line, original->col
+    );
+    specialized->typeParams = {};  // No longer generic
+    specialized->isMain = false;
+    
+    return specialized;
+}
+
+// Override emitFunction to handle monomorphized functions
+void LLVMIRGenerator::emitFunction(const FunctionDecl* fn, const std::string& owner) {
+    // Check if this is a generic function being called with concrete types
+    // This would need call-site analysis to work fully
+    // For now, just emit the original
+    emitFunction(fn);
 }
 
 } // namespace eng

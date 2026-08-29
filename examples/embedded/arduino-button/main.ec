@@ -3,26 +3,24 @@
 
 import arduino;
 import embedded.gpio;
+import embedded.uart;
 
 fn setup() {
-    let led = gpio.output(13);
-    let btn = gpio.input(2);
-    btn.setMode(embedded.gpio.Mode.INPUT_PULLUP);
+    pinMode(13, PinMode.OUTPUT);
+    pinMode(2, PinMode.INPUT_PULLUP);
 
-    uart.begin(9600);
-    uart.write("Button test ready\n");
+    uart_open_baud(0, 9600);
+    uart_write(0, "Button test ready\n");
 }
 
 fn loop() {
-    let btn = gpio.input(2);
-    let led = gpio.output(13);
-
-    if btn.read() == embedded.gpio.PinState.LOW {
-        led.high();
-        uart.write("Button pressed\n");
+    let btn_state = digitalRead(2);
+    if btn_state == PinState.LOW {
+        digitalWrite(13, PinState.HIGH);
+        uart_write(0, "Button pressed\n");
         delay(200);  // Debounce
     } else {
-        led.low();
+        digitalWrite(13, PinState.LOW);
     }
 
     delay(10);
@@ -30,5 +28,7 @@ fn loop() {
 
 fn main() {
     setup();
-    loop();
+    while (true) {
+        loop();
+    }
 }

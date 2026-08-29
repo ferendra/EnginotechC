@@ -1,55 +1,49 @@
-// EnginotechC++ — Embedded Example: ESP32 WiFi HTTP
-// Full IoT demo: WiFi + HTTP server + sensor reading
+// EnginotechC++ — Embedded Example: ESP32 WiFi
+// WiFi connectivity demo
 
 import esp32;
 import embedded.gpio;
+import embedded.system;
 import embedded.uart;
 import embedded.wifi;
-import embedded.system;
 
 fn setup() {
-    let led = gpio.output(2);
-    led.low();
+    pinMode(2, PinMode.OUTPUT);
+    digitalWrite(2, PinState.LOW);
 
-    uart.begin(115200);
-    uart.write("Starting ESP32 IoT Demo...\n");
+    uart_open_baud(0, 115200);
+    uart_write(0, "Starting ESP32 WiFi Demo...\n");
 
     // Connect to WiFi
-    wifi.begin("YOUR_SSID", "YOUR_PASSWORD");
+    let config = WifiConfig {
+        ssid: "YOUR_SSID",
+        password: "YOUR_PASSWORD",
+        mode: WifiMode.STA
+    };
+    wifi_init(WifiMode.STA);
+    wifi_connect(config);
 
-    while !wifi.isConnected() {
-        uart.write(".");
+    while !wifi_is_connected() {
+        uart_write(0, ".");
         delay(100);
     }
-    uart.write("\nConnected! IP: " + wifi.localIP() + "\n");
+    uart_write(0, "\nConnected! IP: " + wifi_get_ip() + "\n");
 
-    // Start HTTP server on port 80
-    http.serverStart(80);
-    http.routeGet("/temperature", fn(req, res) {
-        let temp = readTemperature();
-        res.json("{\"temperature\":" + str(temp) + "}");
-    });
-
-    http.routeGet("/", fn(req, res) {
-        res.html("<h1>ESP32 IoT Demo</h1><a href='/temperature'>Temperature</a>");
-    });
-
-    led.high();
-    uart.write("HTTP server running at " + wifi.localIP() + "\n");
+    digitalWrite(2, PinState.HIGH);
+    uart_write(0, "WiFi connected at " + wifi_get_ip() + "\n");
 }
 
 fn loop() {
-    http.serverTick();
-    delay(100);
-}
-
-fn readTemperature() -> float {
-    // Read from ADC channel (simulated)
-    let sensor = adc.open(34);
-    return sensor.readVoltage();
+    // Check connection periodically
+    if !wifi_is_connected() {
+        uart_write(0, "WiFi disconnected!\n");
+    }
+    delay(1000);
 }
 
 fn main() {
     setup();
-    loop();
+    while (true) {
+        loop();
+    }
 }

@@ -4,22 +4,24 @@
 import esp32;
 import embedded.gpio;
 import embedded.system;
+import embedded.uart;
 
 fn setup() {
-    let led = gpio.output(2);
-    led.high();
-    uart.write("ESP32 blinking LED on GPIO 2\n");
+    pinMode(2, PinMode.OUTPUT);
+    uart_open_baud(0, 115200);
+    uart_write(0, "ESP32 blinking LED on GPIO 2\n");
 }
 
 fn loop() {
-    let led = gpio.output(2);
-    led.high();
+    digitalWrite(2, PinState.HIGH);
     delay(500);
-    led.low();
+    digitalWrite(2, PinState.LOW);
     delay(500);
 }
 
 fn main() {
     setup();
-    loop();
+    while (true) {
+        loop();
+    }
 }

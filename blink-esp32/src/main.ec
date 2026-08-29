@@ -4,22 +4,23 @@ import embedded.uart;
 import embedded.system;
 
 fn setup() {
-    let led = gpio.output(2);
-    led.high();
-    uart.begin(115200);
-    uart.write("Project " + str(") + name + R"(" started\n");
-    uart.write("Chip: " + system.getChipModel() + "\n");
+    pinMode(2, PinMode.OUTPUT);
+    digitalWrite(2, PinState.HIGH);
+    uart_open_baud(0, 115200);
+    uart_write(0, "Project blink-esp32 started\n");
+    uart_write(0, "Chip: " + get_chip_id() + "\n");
 }
 
 fn loop() {
-    let led = gpio.output(2);
-    led.high();
+    digitalWrite(2, PinState.HIGH);
     delay(500);
-    led.low();
+    digitalWrite(2, PinState.LOW);
     delay(500);
 }
 
 fn main() {
     setup();
-    loop();
+    while (true) {
+        loop();
+    }
 }

@@ -1,18 +1,16 @@
 // EnginotechC++ — Embedded Example: Arduino Blink
 // A complete, buildable example for Arduino Uno
 
-// EC source: examples/embedded/arduino-blink/main.ec
-fn main() {
-    let led = gpio.output(13);
+import arduino;
 
-    loop {
-        led.high();
+fn main() {
+    pinMode(13, PinMode.OUTPUT);
+
+    while (true) {
+        digitalWrite(13, PinState.HIGH);
         delay(500);
 
-        led.low();
+        digitalWrite(13, PinState.LOW);
         delay(500);
     }
 }
-
-// The above uses EC's loop{} construct which compiles to:
-// while(1) { ... } in C/LLVM IR

@@ -215,11 +215,10 @@ static void resolveImports(Program& prog, const fs::path& sourcePath,
 
 
 EngCompiler::Result EngCompiler::cmdRunEmbedded(const std::string& sourcePath,
-                                                 const std::string& outputPath,
-                                                 bool arduinoMode,
-                                                 bool dynamicTyping) {
+                                                  const std::string& outputPath,
+                                                  bool arduinoMode,
+                                                  bool dynamicTyping) {
     DiagnosticEngine diag;
-    FILE* f = fopen("/tmp/typecheck_debug.txt", "w"); fprintf(f, "cmdRunEmbedded START\n"); fclose(f);
     std::string source = readFile(sourcePath);
     if (source.empty()) {
         return {false, "Cannot read source file: " + sourcePath, "", 1};
@@ -349,7 +348,6 @@ EngCompiler::Result EngCompiler::cmdFmt(const std::string& sourcePath) {
         return {false, "Cannot read file: " + sourcePath, "", 1};
     }
     DiagnosticEngine diag;
-    FILE* f = fopen("/tmp/typecheck_debug.txt", "w"); fprintf(f, "cmdRunEmbedded START\n"); fclose(f);
     Lexer lexer(source);
     auto tokens = lexer.tokenize();
     Parser parser(tokens, diag);

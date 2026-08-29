@@ -31,6 +31,16 @@ bool TypeChecker::isFloatType(const TypePtr& type) const {
     return basic && (basic->name == "float" || basic->name == "float32" || basic->name == "float64" || basic->name == "double");
 }
 
+bool TypeChecker::isEnumType(const TypePtr& type) const {
+    if (!type) return false;
+    auto* basic = dynamic_cast<BasicType*>(type.get());
+    if (!basic) return false;
+    for (const auto* enumDecl : enumDecls_) {
+        if (enumDecl->name == basic->name) return true;
+    }
+    return false;
+}
+
 TypePtr TypeChecker::inferTypeFromLiteral(const LiteralExpr* lit) const {
     if (!lit) return nullptr;
     switch (lit->val.kind) {
@@ -133,6 +143,9 @@ void TypeChecker::typeCheckExpr(const ExprPtr& expr) {
             auto* ident = static_cast<IdentExpr*>(expr.get());
             if (symbols_.count(ident->name)) {
                 expr->type = symbols_[ident->name];
+            } else if (isEnumType(std::make_shared<BasicType>(ident->name))) {
+                // Enum type name used as value (for variant access)
+                expr->type = std::make_shared<BasicType>(ident->name);
             } else {
                 expr->type = std::make_shared<BasicType>("unknown");
             }
@@ -147,6 +160,17 @@ void TypeChecker::typeCheckExpr(const ExprPtr& expr) {
             if (leftType && rightType) {
                 std::string leftName = leftType->getName();
                 std::string rightName = rightType->getName();
+                
+                // Allow comparison of same enum types
+                if (leftName == rightName && isEnumType(leftType)) {
+                    if (bo->op == TokenType::EQ || bo->op == TokenType::NEQ) {
+                        expr->type = std::make_shared<BasicType>("bool");
+                    } else {
+                        error("E2002", "Type mismatch in binary operation: " + leftName + " and " + rightName, bo->line, bo->col);
+                        expr->type = std::make_shared<BasicType>("unknown");
+                    }
+                    break;
+                }
                 
                 // String concatenation
                 if ((leftName == "string" && rightName == "string") ||
@@ -214,11 +238,18 @@ void TypeChecker::typeCheckExpr(const ExprPtr& expr) {
                     }
                     // Check for user-defined functions
                     if (fnRetTypes_.count(calleeIdent->name)) {
-                        expr->type = fnRetTypes_[calleeIdent->name];
+                        TypePtr retType = fnRetTypes_[calleeIdent->name];
+                        // If return type has type params, try to infer from args
+                        if (!typeParamScopes_.empty()) {
+                            retType = substituteTypeParams(retType, typeParamScopes_.back());
+                        }
+                        expr->type = retType;
+                        for (auto& arg : call->args) typeCheckExpr(arg);
                         break;
                     }
                 }
             }
+            for (auto& arg : call->args) typeCheckExpr(arg);
             expr->type = std::make_shared<BasicType>("unknown");
             break;
         }
@@ -237,7 +268,47 @@ void TypeChecker::typeCheckExpr(const ExprPtr& expr) {
             break;
         }
         case ExprKind::StructLit: {
-            expr->type = std::make_shared<BasicType>("struct");
+            auto* sl = static_cast<StructLitExpr*>(expr.get());
+            if (!sl->structName.empty()) {
+                for (const auto* structDecl : structDecls_) {
+                    if (structDecl->name == sl->structName) {
+                        if (!structDecl->typeParams.empty()) {
+                            // Infer type args from field types
+                            std::unordered_map<std::string, TypePtr> typeArgs;
+                            for (const auto& [fieldName, fieldExpr] : sl->fields) {
+                                for (const auto& [declFieldName, declFieldType] : structDecl->fields) {
+                                    if (declFieldName == fieldName) {
+                                        typeCheckExpr(fieldExpr);
+                                        if (fieldExpr->type) {
+                                            // Infer type params from field types
+                                            inferTypeParams(declFieldType, fieldExpr->type, typeArgs);
+                                        }
+                                    }
+                                }
+                            }
+                            // Build type args vector in order of typeParams
+                            std::vector<TypePtr> inferredArgs;
+                            for (const auto& tp : structDecl->typeParams) {
+                                if (auto* typeParam = dynamic_cast<TypeParam*>(tp.get())) {
+                                    auto it = typeArgs.find(typeParam->name);
+                                    if (it != typeArgs.end()) {
+                                        inferredArgs.push_back(it->second);
+                                    } else {
+                                        // Default to int if not inferred
+                                        inferredArgs.push_back(std::make_shared<BasicType>("int"));
+                                    }
+                                }
+                            }
+                            expr->type = std::make_shared<GenericType>(sl->structName, inferredArgs);
+                        } else {
+                            expr->type = std::make_shared<BasicType>(sl->structName);
+                        }
+                        break;
+                    }
+                }
+            } else {
+                expr->type = std::make_shared<BasicType>("struct");
+            }
             break;
         }
         case ExprKind::FieldAccess: {
@@ -246,11 +317,47 @@ void TypeChecker::typeCheckExpr(const ExprPtr& expr) {
             // Try to resolve field type from struct declaration
             if (fa->obj->type) {
                 std::string objTypeName = fa->obj->type->getName();
+                // Check if it's a generic type like Vec<T>
+                TypePtr objType = fa->obj->type;
+                std::unordered_map<std::string, TypePtr> typeArgs;
+                
+                if (auto* genericType = dynamic_cast<GenericType*>(fa->obj->type.get())) {
+                    objTypeName = genericType->name;
+                    // Extract type arguments for substitution
+                    for (size_t i = 0; i < genericType->params.size(); ++i) {
+                        // Find the corresponding type param from struct declaration
+                        for (const auto* structDecl : structDecls_) {
+                            if (structDecl->name == objTypeName && i < structDecl->typeParams.size()) {
+                                if (auto* tp = dynamic_cast<TypeParam*>(structDecl->typeParams[i].get())) {
+                                    typeArgs[tp->name] = genericType->params[i];
+                                }
+                            }
+                        }
+                    }
+                
+                // Check if it's an enum type
+                for (const auto* enumDecl : enumDecls_) {
+                    if (enumDecl->name == objTypeName) {
+                        // Look for enum variant
+                        for (const auto& [variantName, variantPayload] : enumDecl->variants) {
+                            if (variantName == fa->field) {
+                                // Enum variant - type is the enum itself
+                                expr->type = std::make_shared<BasicType>(enumDecl->name);
+                                return;
+                            }
+                        }
+                    }
+                
                 for (const auto* structDecl : structDecls_) {
                     if (structDecl->name == objTypeName) {
                         for (const auto& [fieldName, fieldType] : structDecl->fields) {
                             if (fieldName == fa->field) {
-                                expr->type = fieldType;
+                                // Substitute type params if needed
+                                if (!typeArgs.empty()) {
+                                    expr->type = substituteTypeParams(fieldType, typeArgs);
+                                } else {
+                                    expr->type = fieldType;
+                                }
                                 return;
                             }
                         }
@@ -419,11 +526,23 @@ void TypeChecker::checkStmt(const StmtPtr& stmt) {
 
 void TypeChecker::typeCheckFn(const FunctionDecl* fn, bool dynamicTyping) {
     if (!fn) return;
+    
+    // Handle generic functions: push type parameters to scope
+    if (!fn->typeParams.empty()) {
+        pushTypeParams(fn->typeParams);
+    }
+    
     for (const auto& [name, type] : fn->params) {
-        symbols_[name] = type;
+        TypePtr substitutedType = substituteTypeParams(type, typeParamScopes_.empty() ? std::unordered_map<std::string, TypePtr>{} : typeParamScopes_.back());
+        symbols_[name] = substitutedType;
         mutableVars_[name] = false;
     }
     for (auto& stmt : fn->body) checkStmt(stmt);
+    
+    if (!fn->typeParams.empty()) {
+        popTypeParams();
+    }
+    
     // In dynamic typing mode, allow nullptr return type (no explicit -> type)
     if (dynamicTyping && fn->returnType == nullptr) {
         // Allow - function can have dynamic return type
@@ -465,6 +584,96 @@ void TypeChecker::check(const std::vector<StmtPtr>& items) {
             }
             default: break;
         }
+    }
+}
+
+// Generics support implementation
+TypePtr TypeChecker::substituteTypeParams(const TypePtr& type, const std::unordered_map<std::string, TypePtr>& typeArgs) {
+    if (!type) return type;
+    
+    if (auto* typeParam = dynamic_cast<TypeParam*>(type.get())) {
+        auto it = typeArgs.find(typeParam->name);
+        if (it != typeArgs.end()) {
+            return it->second;
+        }
+        return type; // Unresolved type param
+    }
+    
+    if (auto* genericType = dynamic_cast<GenericType*>(type.get())) {
+        std::vector<TypePtr> newParams;
+        for (const auto& param : genericType->params) {
+            newParams.push_back(substituteTypeParams(param, typeArgs));
+        }
+        return std::make_shared<GenericType>(genericType->name, newParams);
+    }
+    
+    if (auto* arrayType = dynamic_cast<ArrayType*>(type.get())) {
+        return std::make_shared<ArrayType>(substituteTypeParams(arrayType->elem, typeArgs), arrayType->size);
+    }
+    
+    if (auto* fnType = dynamic_cast<FnType*>(type.get())) {
+        TypePtr newRet = substituteTypeParams(fnType->ret, typeArgs);
+        std::vector<std::pair<std::string, TypePtr>> newParams;
+        for (const auto& [name, paramType] : fnType->params) {
+            newParams.emplace_back(name, substituteTypeParams(paramType, typeArgs));
+        }
+        return std::make_shared<FnType>(newRet, newParams);
+    }
+    
+    return type;
+}
+
+void TypeChecker::pushTypeParams(const std::vector<TypePtr>& typeParams) {
+    std::unordered_map<std::string, TypePtr> scope;
+    for (const auto& tp : typeParams) {
+        if (auto* typeParam = dynamic_cast<TypeParam*>(tp.get())) {
+            scope[typeParam->name] = tp; // Store the TypeParam itself for now
+        }
+    }
+    typeParamScopes_.push_back(std::move(scope));
+}
+
+void TypeChecker::popTypeParams() {
+    if (!typeParamScopes_.empty()) {
+        typeParamScopes_.pop_back();
+    }
+}
+
+// Helper: infer type parameters from expected vs actual type
+void TypeChecker::inferTypeParams(const TypePtr& expected, const TypePtr& actual, std::unordered_map<std::string, TypePtr>& typeArgs) {
+    if (!expected || !actual) return;
+    
+    if (auto* typeParam = dynamic_cast<TypeParam*>(expected.get())) {
+        typeArgs[typeParam->name] = actual;
+        return;
+    }
+    
+    if (auto* expGeneric = dynamic_cast<GenericType*>(expected.get())) {
+        if (auto* actGeneric = dynamic_cast<GenericType*>(actual.get())) {
+            if (expGeneric->name == actGeneric->name && expGeneric->params.size() == actGeneric->params.size()) {
+                for (size_t i = 0; i < expGeneric->params.size(); ++i) {
+                    inferTypeParams(expGeneric->params[i], actGeneric->params[i], typeArgs);
+                }
+            }
+        }
+        return;
+    }
+    
+    if (auto* expArray = dynamic_cast<ArrayType*>(expected.get())) {
+        if (auto* actArray = dynamic_cast<ArrayType*>(actual.get())) {
+            inferTypeParams(expArray->elem, actArray->elem, typeArgs);
+        }
+        return;
+    }
+    
+    if (auto* expFn = dynamic_cast<FnType*>(expected.get())) {
+        if (auto* actFn = dynamic_cast<FnType*>(actual.get())) {
+            inferTypeParams(expFn->ret, actFn->ret, typeArgs);
+            for (size_t i = 0; i < expFn->params.size() && i < actFn->params.size(); ++i) {
+                inferTypeParams(expFn->params[i].second, actFn->params[i].second, typeArgs);
+            }
+        }
+        return;
     }
 }
 

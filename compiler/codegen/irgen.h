@@ -157,6 +157,26 @@ private:
     struct FnSig { std::string ret; std::vector<std::string> params; };
     std::map<std::string, FnSig> sigs_;                                               // callable name -> signature
 
+    // ---- Generics / Monomorphization ----
+    // Track generic declarations: fn identity<T> -> original decl
+    std::map<std::string, const FunctionDecl*> genericFunctions_;    // "identity" -> original
+    std::map<std::string, const StructDecl*> genericStructs_;        // "Vec" -> original
+    std::map<std::string, const EnumDecl*> genericEnums_;            // "Option" -> original
+    std::map<std::string, const ImplDecl*> genericImpls_;            // "Vec" -> original
+
+    // Monomorphized instances: "identity<int>" -> specialized decl
+    struct MonoInstance {
+        const FunctionDecl* original;
+        std::vector<TypePtr> typeArgs;
+        std::shared_ptr<FunctionDecl> specialized;
+    };
+    std::map<std::string, MonoInstance> monoFunctions_;  // mangled name -> instance
+
+    std::string mangleMonoName(const std::string& baseName, const std::vector<TypePtr>& typeArgs);
+    const FunctionDecl* getOrCreateMonomorph(const FunctionDecl* original, const std::vector<TypePtr>& typeArgs);
+    std::shared_ptr<FunctionDecl> specializeFunction(const FunctionDecl* original, const std::vector<TypePtr>& typeArgs);
+    TypePtr substituteTypeInType(const TypePtr& type, const std::vector<TypePtr>& typeParams, const std::vector<TypePtr>& typeArgs);
+
     // per-function state
     struct Slot { std::string reg; std::string llvmTy; VT vt; std::string typeName; VT elemVT = VT::Int; };
     std::map<std::string, Slot> slots_;
