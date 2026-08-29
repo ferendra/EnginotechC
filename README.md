@@ -2,7 +2,7 @@
 
 A modern, modular, industrial-grade programming language with C-like syntax.
 
-**Version:** 0.4.1 (M0 Bootstrap — Bug Fixes & Performance)
+**Version:** 0.5.0 (Generics & Monomorphization)
 **Status:** Pre-release — Lexer, Parser, AST, Semantic Analysis, LLVM Codegen working
 **Language:** C++20 with LLVM 14+
 **Build System:** CMake 3.16+
@@ -260,3 +260,69 @@ engc add mylib          # installs into .ec_packages/
 ```ec
 import mylib;           // compiler finds it in .ec_packages/mylib/
 ```
+
+## 🔬 Generics (v0.5.0)
+
+Full generic programming support with monomorphization:
+
+### Generic Functions
+```ec
+fn identity<T>(x: T) -> T { return x; }
+fn pair<A, B>(a: A, b: B) -> Pair<A, B> { return Pair { a, b }; }
+
+let x = identity(42);        // T = int (inferred)
+let y = identity("hello");   // T = string (inferred)
+```
+
+### Generic Structs
+```ec
+struct Vec<T> {
+    data: array<T>;
+    len: int;
+}
+
+impl<T> Vec<T> {
+    fn new() -> Vec<T> { return Vec { data: [], len: 0 }; }
+    fn push(self, item: T) -> void { }
+    fn pop(self) -> Option<T> { }
+}
+
+let v: Vec<int> = Vec<int>::new();
+v.push(1);
+v.push(2);
+```
+
+### Generic Enums
+```ec
+enum Option<T> {
+    Some(T),
+    None
+}
+
+enum Result<T, E> {
+    Ok(T),
+    Err(E)
+}
+
+let opt: Option<string> = Option.Some("hello");
+let res: Result<int, string> = Result.Ok(42);
+```
+
+### Stdlib Generic Types
+```ec
+import std.vec;
+import std.option;
+import std.result;
+
+let mut v = Vec<int>::new();
+v.push(1);
+let first = v.get(0).unwrap_or(-1);
+
+let opt = Option.Some("value");
+let mapped = opt.map(|s| s + "!");
+
+let result = Result.Ok(42);
+let doubled = result.map(|x| x * 2);
+```
+
+**Monomorphization**: Compiler generates specialized code per concrete type (e.g., `identity<int>`, `identity<string>`) for zero-overhead abstraction.
